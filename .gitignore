@@ -1,0 +1,5 @@
+__pycache__/
+*.egg-info/
+checkpoints/
+.pytest_cache/
+*.ckpt
