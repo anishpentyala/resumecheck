@@ -10,7 +10,7 @@ without ever raising an error.
 from .recorder import TrajectoryRecorder, Trajectory, StepRecord
 from .compare import CompareReport, Divergence, compare_trajectories
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "TrajectoryRecorder",
