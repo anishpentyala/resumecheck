@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resumecheck"
+version = "0.1.0"
+description = "Verify that checkpoint-and-resume training matches uninterrupted training"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Anish Pentyala"}]
+keywords = ["pytorch", "lightning", "checkpoint", "resume", "determinism", "testing"]
+
+[project.optional-dependencies]
+lightning = ["lightning>=2.1", "torch>=2.0"]
+test = ["pytest>=7", "lightning>=2.1", "torch>=2.0"]
+
+[project.scripts]
+resumecheck = "resumecheck.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
