@@ -41,12 +41,36 @@ print(report.summary)
 assert report.passed
 ```
 
+A Hugging Face `Trainer` adapter provides the same check:
+
+```python
+from resumecheck.hf import check_hf
+
+report = check_hf(
+    model_factory=TinyModel,     # fresh nn.Module returning {"loss": ...}
+    train_dataset=ds,            # map-style dataset of dicts of tensors
+    max_steps=100,
+    resume_at=40,
+    seed=42,
+)
+```
+
 There is also a framework-agnostic core (`TrajectoryRecorder` +
 `compare_trajectories`) you can wire into any training loop, and a CLI:
 
 ```bash
 resumecheck compare uninterrupted.json resumed.json
 ```
+
+## How the crash is simulated
+
+The interrupted run is configured for the **final** step count and then
+stopped early (Lightning `trainer.should_stop`, HF `should_training_stop`),
+not configured with a smaller `max_steps`. This matters: LR schedules and
+other training-length-dependent setup see the true total, exactly as in a
+real crash-and-resume. Resuming with a different total than the original run
+changes the schedule by design — that is a different experiment, not a resume
+bug.
 
 ## What a PASS means — and what it does not
 
