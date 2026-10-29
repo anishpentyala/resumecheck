@@ -131,11 +131,31 @@ def check_lightning(
     # Phase 2: pre-crash segment, then resume
     import tempfile, os
 
+    class _StopAt:
+        pass
+
+    from lightning.pytorch.callbacks import Callback as _Cb
+
+    class StopAtCallback(_Cb):
+        """Simulate a crash: request training stop after step ``stop_at``.
+
+        The trainer is configured for the FINAL max_steps so any scheduler or
+        training-length-dependent setup matches the uninterrupted run; only
+        the stop is early.
+        """
+
+        def __init__(self, stop_at: int) -> None:
+            self.stop_at = stop_at
+
+        def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+            if trainer.global_step >= self.stop_at:
+                trainer.should_stop = True
+
     with tempfile.TemporaryDirectory() as tmp:
         pl.seed_everything(seed, workers=True)
         rec_a = TrajectoryRecorder("pre-crash", seed=seed)
         cb_a = RecorderCallback(rec_a)
-        trainer_a = pl.Trainer(max_steps=resume_at, callbacks=[cb_a], **kwargs)
+        trainer_a = pl.Trainer(max_steps=max_steps, callbacks=[cb_a, StopAtCallback(resume_at)], **kwargs)
         trainer_a.fit(module_factory(), datamodule_factory())
         ckpt = os.path.join(tmp, "crash.ckpt")
         trainer_a.save_checkpoint(ckpt)
