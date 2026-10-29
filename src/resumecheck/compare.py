@@ -144,4 +144,4 @@ def compare_trajectories(
             f"PASS: {n} steps identical within rtol={rtol}, atol={atol}"
             + (f" (warnings: {'; '.join(missing)})" if missing else "")
         ),
-  )
+                )
