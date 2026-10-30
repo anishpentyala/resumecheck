@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- Corrected the Accelerate boundary-replay mechanism text (adapter spec
+  header + README): the decisive cause is `DataLoaderShard`'s `iteration`
+  counter driving `set_epoch` at every iteration start while being
+  neither checkpointed nor advanced by the documented resume patterns -
+  not primarily the sampler's exhaustion-side-effect. The
+  `skip_first_batches` path is now explained by the same mechanism
+  (previously listed as unresolved), and verified `set_epoch` caller
+  workarounds are documented for both paths.
+
 ### Added
 
 - **Accelerate adapter** (`resumecheck.accelerate.check_accelerate`):
