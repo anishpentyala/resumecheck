@@ -15,7 +15,8 @@ keywords = ["pytorch", "lightning", "checkpoint", "resume", "determinism", "test
 [project.optional-dependencies]
 lightning = ["lightning>=2.1", "torch>=2.0"]
 hf = ["transformers>=4.40", "accelerate>=1.1", "torch>=2.0"]
-test = ["pytest>=7", "lightning>=2.1", "transformers>=4.40", "accelerate>=1.1", "torch>=2.0"]
+accel = ["accelerate>=1.1", "torchdata>=0.8", "torch>=2.0"]
+test = ["pytest>=7", "lightning>=2.1", "transformers>=4.40", "accelerate>=1.1", "torchdata>=0.8", "torch>=2.0"]
 
 [project.scripts]
 resumecheck = "resumecheck.cli:main"
