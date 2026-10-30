@@ -41,7 +41,10 @@ print(report.summary)
 assert report.passed
 ```
 
-A Hugging Face `Trainer` adapter provides the same check:
+A Hugging Face `Trainer` adapter provides the same check, and an
+Accelerate adapter covers the documented
+`use_stateful_dataloader` + `use_seedable_sampler` resume path
+(`resumecheck.accelerate.check_accelerate`).
 
 ```python
 from resumecheck.hf import check_hf
@@ -103,6 +106,19 @@ not an expected one. The HF adapter is verified against transformers
 5.20.2 + accelerate: both the mid-epoch and the epoch-boundary parity
 tests pass there, so the #22077-class boundary defect does not reproduce
 on the HF Trainer path in this configuration.
+
+Accelerate adapter validation (2026-10-30, accelerate 1.15.0 +
+torchdata 0.11.0, CPU): mid-epoch resume parity PASSES on the documented
+stateful path. A checkpoint saved exactly at an epoch boundary does NOT
+resume correctly there: the completed epoch is fully replayed, because
+`SeedableRandomSampler` advances its epoch counter only when its iterator
+is fully exhausted, and the stateful restore fast-forwards by
+draw-and-discard without exhausting it. The suite encodes this as a
+pinned executable spec (strict-xfail positive + negative control on
+accelerate==1.15.0/torchdata==0.11.0; normal must-pass assertion
+elsewhere). Not covered: the `skip_first_batches` path (semantics under
+investigation, no claim) and torch-generator samplers, whose post-restore
+permutation divergence is known upstream as pytorch/data#1561.
 
 ## Examples
 
