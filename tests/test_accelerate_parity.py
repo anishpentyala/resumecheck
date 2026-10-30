@@ -19,9 +19,11 @@ Verified caller workaround (2026-10-30): after load_state, call
 train_dataloader.set_epoch(next_epoch_index) before continuing - parity
 holds with it, fails without it (both directions probed).
 
-Verified affected: accelerate 1.15.0 + torchdata 0.11.0 (CPU, seedable
-sampler + stateful dataloader, the documented resume path).
-Verified correct: mid-epoch resume on the same stack.
+Verified affected (2026-10-30): accelerate 1.15.0 (latest PyPI release)
+and master 1.16.0.dev0 @ 90b233c, both with torchdata 0.11.0 (CPU,
+seedable sampler + stateful dataloader, the documented resume path). The
+set_epoch workaround restores parity on both.
+Verified correct: mid-epoch resume on the same stacks.
 Not claimed: other versions (untested) and torch-generator samplers
 (post-restore permutation divergence there is known upstream as
 pytorch/data#1561).
@@ -40,12 +42,17 @@ from resumecheck.accelerate import check_accelerate
 
 _ACCELERATE_BOUNDARY_REPLAY = (
     "accelerate stateful-dataloader boundary resume replays the completed "
-    "epoch (SeedableRandomSampler epoch counter is not advanced by "
-    "torchdata's non-exhausting restore fast-forward)"
+    "epoch (DataLoaderShard drives the sampler permutation from its own "
+    "iteration counter, which is not checkpointed and is not advanced when "
+    "the training loop is broken at an epoch boundary)"
 )
 
+# Verified affected (2026-10-30): accelerate 1.15.0 (latest PyPI release)
+# and current master 1.16.0.dev0 @ commit 90b233c, both with
+# torchdata 0.11.0. 1.16.0.dev0 is a moving dev version string; the
+# snapshot tested is the named commit.
 _VERIFIED_AFFECTED = (
-    _importlib_metadata.version("accelerate") == "1.15.0"
+    _importlib_metadata.version("accelerate") in ("1.15.0", "1.16.0.dev0")
     and _importlib_metadata.version("torchdata").startswith("0.11.0")
 )
 
@@ -113,7 +120,8 @@ def test_accelerate_epoch_boundary_resume_parity():
 @pytest.mark.skipif(
     not _VERIFIED_AFFECTED,
     reason="epoch-replay reproduction is pinned to the verified-affected "
-    "accelerate==1.15.0 + torchdata==0.11.0; other versions are covered by "
+    "versions (accelerate 1.15.0 and master 1.16.0.dev0 @ 90b233c, with "
+    "torchdata 0.11.0); other versions are covered by "
     "the positive parity test asserting compatibility normally",
 )
 def test_accelerate_epoch_boundary_resume_regression():
