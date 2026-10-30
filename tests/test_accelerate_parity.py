@@ -2,17 +2,29 @@
 
 Includes the epoch-boundary regression spec for the verified divergence on
 accelerate==1.15.0 + torchdata==0.11.0: a save_state taken exactly at an
-epoch boundary restores into a full replay of the completed epoch, because
-SeedableRandomSampler advances its epoch counter only when its iterator is
-fully exhausted (accelerate/data_loader.py) and the stateful restore
-fast-forwards by draw-and-discard without exhausting it, so the epoch
-counter never advances on restore.
+epoch boundary restores into a full replay of the completed epoch.
+
+Verified mechanism (accelerate/data_loader.py + runtime probes):
+DataLoaderShard.__iter__ calls self.set_epoch(self.iteration) at the start
+of every iteration, i.e. the sampler's shuffle permutation is driven by the
+shard's own iteration counter. That counter is NOT part of the checkpointed
+state (the saved state_dict has no iteration field) and a crash-break at
+the boundary stops the loop before __iter__ reaches its self.iteration += 1
+line, so after load_state the next epoch reseeds the sampler with epoch 0
+and replays the completed epoch's permutation. Mid-epoch resume
+self-corrects because the resumed iteration completes the partial epoch
+and the counter increments normally.
+
+Verified caller workaround (2026-10-30): after load_state, call
+train_dataloader.set_epoch(next_epoch_index) before continuing - parity
+holds with it, fails without it (both directions probed).
 
 Verified affected: accelerate 1.15.0 + torchdata 0.11.0 (CPU, seedable
 sampler + stateful dataloader, the documented resume path).
 Verified correct: mid-epoch resume on the same stack.
-Not claimed: other versions (untested), the skip_first_batches path, and
-torch-generator samplers (see torchdata#1561).
+Not claimed: other versions (untested) and torch-generator samplers
+(post-restore permutation divergence there is known upstream as
+pytorch/data#1561).
 """
 import importlib.metadata as _importlib_metadata
 

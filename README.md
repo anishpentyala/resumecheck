@@ -110,14 +110,26 @@ on the HF Trainer path in this configuration.
 Accelerate adapter validation (2026-10-30, accelerate 1.15.0 +
 torchdata 0.11.0, CPU): mid-epoch resume parity PASSES on the documented
 stateful path. A checkpoint saved exactly at an epoch boundary does NOT
-resume correctly there: the completed epoch is fully replayed, because
-`SeedableRandomSampler` advances its epoch counter only when its iterator
-is fully exhausted, and the stateful restore fast-forwards by
-draw-and-discard without exhausting it. The suite encodes this as a
-pinned executable spec (strict-xfail positive + negative control on
+resume correctly there: the completed epoch is fully replayed.
+
+Verified mechanism: `DataLoaderShard.__iter__` calls
+`set_epoch(self.iteration)` at the start of every iteration, so the
+shuffle permutation is driven by the shard's own iteration counter. That
+counter is not part of the checkpointed state, and a crash at the epoch
+boundary stops the loop before the counter increments - after
+`load_state`, the next epoch reseeds the sampler with epoch 0 and replays
+the completed epoch. The same counter explains the `skip_first_batches`
+path: the skip wrapper consumes the sampler without advancing the shard's
+counter, so every post-resume epoch is shifted back one permutation.
+
+Verified workarounds (both directions probed): on the stateful path, call
+`train_dataloader.set_epoch(next_epoch_index)` after `load_state` when
+resuming at an epoch boundary; on the `skip_first_batches` path, call
+`train_dataloader.set_epoch(epoch)` for each epoch after the resume
+epoch. The boundary case is encoded as a pinned executable spec
+(strict-xfail positive + negative control on
 accelerate==1.15.0/torchdata==0.11.0; normal must-pass assertion
-elsewhere). Not covered: the `skip_first_batches` path (semantics under
-investigation, no claim) and torch-generator samplers, whose post-restore
+elsewhere). Not covered: torch-generator samplers, whose post-restore
 permutation divergence is known upstream as pytorch/data#1561.
 
 ## Examples
