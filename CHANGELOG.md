@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- HF adapter: added an epoch-boundary resume parity test (n=8, batch 2 ->
+  4 steps/epoch, resume_at=4, max_steps=8), the HF analog of the Lightning
+  #22077 boundary case. It PASSES on transformers 5.20.2 + accelerate,
+  and a fingerprint probe confirms epoch 2 batch order differs from
+  epoch 1, so the test is sensitive to boundary mishandling rather than
+  vacuously green. This is also the first local end-to-end run of the HF
+  suite: it was previously skip-gated because transformers/accelerate were
+  not installed in the verification environments.
 ## 0.2.1 (2026-10-30)
 
 ### Fixed
