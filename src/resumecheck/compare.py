@@ -96,8 +96,15 @@ def compare_trajectories(
                 missing_fields=missing,
                 summary=f"DIVERGED at record {i}: step indices misaligned",
             )
-        if check_batch and sa.batch_fingerprint and sb.batch_fingerprint:
-            if sa.batch_fingerprint != sb.batch_fingerprint:
+        if check_batch:
+            if (sa.batch_fingerprint is None) != (sb.batch_fingerprint is None):
+                if "batch" not in one_sided:
+                    one_sided.add("batch")
+                    missing.append("batch_fingerprint recorded in only one run")
+            elif (
+                sa.batch_fingerprint is not None
+                and sa.batch_fingerprint != sb.batch_fingerprint
+            ):
                 return CompareReport(
                     passed=False,
                     steps_compared=i,
@@ -170,4 +177,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-    )
+                                 )
