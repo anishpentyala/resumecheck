@@ -106,3 +106,16 @@ class TestFailClosed:
             b.steps[i].grad_norm = None
         r = compare_trajectories(a, b)
         assert not r.passed
+
+
+def test_one_sided_field_reported_once_not_per_step():
+    """Regression (audit residual): a one-sided field must appear once in
+    missing_fields even over many steps, not once per step."""
+    a = traj("full", [1.0 - 0.01 * i for i in range(50)])
+    b = traj("resumed", [1.0 - 0.01 * i for i in range(50)])
+    for i, s in enumerate(a.steps):
+        s.grad_norm = 0.5
+        b.steps[i].grad_norm = None
+    r = compare_trajectories(a, b)
+    assert not r.passed
+    assert len(r.missing_fields) == 1
