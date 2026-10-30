@@ -130,9 +130,19 @@ on the stateful path, call
 resuming at an epoch boundary; on the `skip_first_batches` path, call
 `train_dataloader.set_epoch(epoch)` for each epoch after the resume
 epoch. The boundary case is encoded as a pinned executable spec
-(strict-xfail positive + negative control on the verified-affected
-versions; normal must-pass assertion elsewhere). Not covered: torch-generator samplers, whose post-restore
+(strict-xfail positive + negative control). The spec gate binds to the
+SHA-256 fingerprint of the mechanism's source (both verified snapshots
+carry byte-identical `DataLoaderShard.__iter__`/`set_epoch`), not a
+version string - an unknown future master asserts compatibility normally
+instead of expected-failing. Not covered: torch-generator samplers, whose post-restore
 permutation divergence is known upstream as pytorch/data#1561.
+
+The adapter also ships the mitigation as an opt-in mode:
+`check_accelerate(..., boundary_set_epoch_workaround=True)` applies the
+verified `set_epoch` realignment after `load_state` and verifies parity
+WITH the mitigation. It is fail-closed (rejects non-boundary `resume_at`)
+and is a caller-side workaround, not an upstream fix - the raw
+documented-path check above is unchanged.
 
 ## Examples
 
