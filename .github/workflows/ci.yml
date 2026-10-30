@@ -1,0 +1,86 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Adapter legs must run their intended extras: any skip fails the session
+# (see tests/conftest.py), so a missing dependency can never pass green.
+env:
+  RESUMECHECK_REQUIRE_NO_SKIPS: "1"
+
+jobs:
+  floor:
+    # The package core is stdlib-only (torch is duck-typed, never imported);
+    # this leg pins the declared requires-python >=3.9 floor. 3.9 has no
+    # build for ubuntu-26.04 (ubuntu-latest), so it runs on ubuntu-24.04.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - run: pip install -e .
+      - run: python -c "import resumecheck, resumecheck.cli, resumecheck.compare, resumecheck.recorder"
+
+  core:
+    # torch + numpy only (test fixtures record real tensors); no framework
+    # extras. torch requires Python >=3.11.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install CPU torch
+        run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e . pytest
+      - run: python -m pytest tests/test_recorder.py tests/test_cli.py tests/test_compare.py -q
+
+  lightning:
+    # Pin tied to README "Validated upstream versions (2026-10-30)":
+    # Lightning 2.6.6, on which the bug-presence spec strict-xfails.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU torch
+        run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e . pytest lightning==2.6.6
+      - run: python -m pytest tests/test_lightning_parity.py -q
+
+  hf:
+    # Pin tied to README: transformers 5.20.2 + accelerate 1.15.0, the
+    # configuration where the #22077-class boundary defect does NOT
+    # reproduce on the HF Trainer path.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU torch
+        run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e . pytest transformers==5.20.2 accelerate==1.15.0
+      - run: python -m pytest tests/test_hf_parity.py -q
+
+  accelerate:
+    # Pin tied to README: accelerate 1.15.0 + torchdata 0.11.0, verified
+    # affected by the epoch-boundary replay defect (strict-xfail specs).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU torch
+        run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e . pytest accelerate==1.15.0 torchdata==0.11.0
+      - run: python -m pytest tests/test_accelerate_parity.py -q
