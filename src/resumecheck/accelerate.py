@@ -170,3 +170,153 @@ def check_accelerate(
     resumed.steps = pre.steps + post.steps
 
     return compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+
+
+def check_accelerate_skip_path(
+    model_factory: Callable[[], Any],
+    train_dataset: Any,
+    max_steps: int,
+    resume_at: int,
+    seed: int = 1234,
+    batch_size: int = 2,
+    rtol: float = 1e-5,
+    atol: float = 1e-7,
+    skip_path_set_epoch_workaround: bool = False,
+) -> CompareReport:
+    """Verify the documented ``skip_first_batches`` resume path: run to
+    ``resume_at``, ``save_state``, then ``load_state`` and resume with
+    ``skip_first_batches`` for the remainder of the resume epoch (the
+    pattern accelerate's checkpointing docs and by_feature example show),
+    comparing against an uninterrupted ``max_steps`` run.
+
+    Known divergence (verified 2026-10-30 on accelerate 1.15.0 and master
+    1.16.0.dev0 @ 90b233c, torchdata 0.11.0): the skip wrapper consumes
+    the sampler without advancing ``DataLoaderShard``'s iteration counter,
+    so every post-resume epoch is shifted back one permutation.
+
+    ``skip_path_set_epoch_workaround`` (opt-in, default off): apply the
+    verified caller-side mitigation - call
+    ``train_dataloader.set_epoch(epoch)`` for each epoch AFTER the resume
+    epoch. Fail-closed: the mitigation is verified only for mid-epoch
+    resumes, so the flag requires ``resume_at`` to land strictly inside an
+    epoch. Caller-side mitigation, not an upstream fix; the raw check is
+    unchanged by it.
+    """
+    _require_accelerate()
+    import tempfile
+
+    import torch
+    from torch.utils.data import DataLoader
+
+    from accelerate import (
+        Accelerator,
+        DataLoaderConfiguration,
+        skip_first_batches,
+    )
+
+    if not 0 < resume_at < max_steps:
+        raise ValueError("resume_at must be in (0, max_steps)")
+
+    steps_per_epoch = -(-len(train_dataset) // batch_size)  # ceil
+    resume_epoch = resume_at // steps_per_epoch
+    resume_batches_in_epoch = resume_at % steps_per_epoch
+    if skip_path_set_epoch_workaround and resume_batches_in_epoch == 0:
+        raise ValueError(
+            "skip_path_set_epoch_workaround is verified only for mid-epoch "
+            "resumes: resume_at="
+            f"{resume_at} is an exact multiple of steps_per_epoch="
+            f"{steps_per_epoch}"
+        )
+
+    def _loss_of(out):
+        if isinstance(out, dict):
+            return out["loss"]
+        if isinstance(out, (tuple, list)):
+            return out[0]
+        return out
+
+    def run(
+        name: str,
+        target: int,
+        stop_and_save_at: Optional[int] = None,
+        save_dir: Optional[str] = None,
+        ckpt: Optional[str] = None,
+        start_epoch: int = 0,
+        skip_batches: int = 0,
+    ) -> Trajectory:
+        torch.manual_seed(seed)
+        cfg = DataLoaderConfiguration(
+            use_stateful_dataloader=False,
+            use_seedable_sampler=True,
+            data_seed=seed,
+        )
+        accelerator = Accelerator(cpu=True, dataloader_config=cfg)
+        model = model_factory()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        model, optimizer, dl = accelerator.prepare(model, optimizer, dl)
+        if ckpt:
+            accelerator.load_state(ckpt)
+
+        rec = TrajectoryRecorder(name, seed=seed)
+        model.train()
+        step = 0
+        epoch = start_epoch
+        first_epoch = True
+        done = False
+        while not done:
+            if first_epoch and skip_batches:
+                active = skip_first_batches(dl, skip_batches)
+            else:
+                if (
+                    not first_epoch
+                    and ckpt
+                    and skip_path_set_epoch_workaround
+                ):
+                    dl.set_epoch(epoch)
+                active = dl
+            first_epoch = False
+            for batch in active:
+                out = model(**batch)
+                loss = _loss_of(out)
+                accelerator.backward(loss)
+                optimizer.step()
+                optimizer.zero_grad()
+                step += 1
+                rec.record(step=step, loss=float(loss.detach().cpu()), batch=batch)
+                if stop_and_save_at is not None and step >= stop_and_save_at:
+                    accelerator.save_state(save_dir)
+                    done = True
+                    break
+                if step >= target:
+                    done = True
+                    break
+            epoch += 1
+        return rec.trajectory
+
+    full = run("uninterrupted", max_steps)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pre = run("pre-crash", max_steps, stop_and_save_at=resume_at, save_dir=tmp)
+        post = run(
+            "resumed",
+            max_steps - resume_at,
+            ckpt=tmp,
+            start_epoch=resume_epoch,
+            skip_batches=resume_batches_in_epoch,
+        )
+
+    post.steps = [
+        type(s)(
+            step=s.step + resume_at,
+            loss=s.loss,
+            batch_fingerprint=s.batch_fingerprint,
+            grad_norm=s.grad_norm,
+            extras=s.extras,
+        )
+        for s in post.steps
+    ]
+    resumed = Trajectory(name="resumed", meta={"seed": seed})
+    resumed.steps = pre.steps + post.steps
+
+    return compare_trajectories(full, resumed, rtol=rtol, atol=atol)
