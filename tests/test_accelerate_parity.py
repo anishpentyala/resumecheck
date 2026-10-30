@@ -360,4 +360,4 @@ def test_accelerate_workers_mid_epoch_resume_regression():
     assert not report.passed, (
         "accelerate workers>0 mid-epoch divergence appears fixed - "
         "update this spec"
-)
+    )
