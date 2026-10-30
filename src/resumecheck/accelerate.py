@@ -47,6 +47,7 @@ def check_accelerate(
     rtol: float = 1e-5,
     atol: float = 1e-7,
     boundary_set_epoch_workaround: bool = False,
+    num_workers: int = 0,
 ) -> CompareReport:
     """Verify that save_state+load_state at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -55,6 +56,14 @@ def check_accelerate(
     dataset's batch keys and returns a scalar loss tensor (or a dict/tuple
     with a "loss" entry); ``train_dataset`` is a map-style dataset of dicts
     of tensors. Deterministic CPU only.
+
+    ``num_workers`` (default 0): worker processes for the DataLoader.
+    NOTE: with num_workers >= 1 the verified behavior of the stateful
+    path changes fundamentally (see README): prepare() eagerly creates
+    the iterator with the original plain RandomSampler, bypassing the
+    seedable sampler, and mid-epoch resume diverges on the verified
+    stacks. ``boundary_set_epoch_workaround`` is verified only with
+    num_workers=0.
 
     ``boundary_set_epoch_workaround`` (opt-in, default off): apply the
     verified caller-side mitigation for the known epoch-boundary replay on
@@ -115,7 +124,12 @@ def check_accelerate(
         accelerator = Accelerator(cpu=True, dataloader_config=cfg)
         model = model_factory()
         optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-        dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        dl = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+        )
         model, optimizer, dl = accelerator.prepare(model, optimizer, dl)
         if ckpt:
             accelerator.load_state(ckpt)
