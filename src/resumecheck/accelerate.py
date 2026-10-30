@@ -46,6 +46,7 @@ def check_accelerate(
     batch_size: int = 2,
     rtol: float = 1e-5,
     atol: float = 1e-7,
+    boundary_set_epoch_workaround: bool = False,
 ) -> CompareReport:
     """Verify that save_state+load_state at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -54,6 +55,17 @@ def check_accelerate(
     dataset's batch keys and returns a scalar loss tensor (or a dict/tuple
     with a "loss" entry); ``train_dataset`` is a map-style dataset of dicts
     of tensors. Deterministic CPU only.
+
+    ``boundary_set_epoch_workaround`` (opt-in, default off): apply the
+    verified caller-side mitigation for the known epoch-boundary replay on
+    accelerate's stateful path - after ``load_state``, call
+    ``train_dataloader.set_epoch(resume_epoch_index)`` so the shard's
+    uncheckpointed iteration counter is realigned before training
+    continues. With this flag on, the check verifies that parity holds
+    WITH the mitigation applied; it does not alter or excuse the raw
+    documented-path finding, and it is not an upstream fix. Fail-closed:
+    the mitigation is only verified at exact epoch boundaries, so the flag
+    requires ``resume_at`` to be an exact multiple of the steps per epoch.
     """
     _require_accelerate()
     import tempfile
@@ -65,6 +77,19 @@ def check_accelerate(
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
+
+    steps_per_epoch = -(-len(train_dataset) // batch_size)  # ceil
+    if boundary_set_epoch_workaround:
+        if resume_at % steps_per_epoch != 0:
+            raise ValueError(
+                "boundary_set_epoch_workaround is verified only at exact "
+                "epoch boundaries: resume_at="
+                f"{resume_at} is not a multiple of steps_per_epoch="
+                f"{steps_per_epoch}"
+            )
+        resume_epoch_index = resume_at // steps_per_epoch
+    else:
+        resume_epoch_index = None
 
     def _loss_of(out):
         if isinstance(out, dict):
@@ -79,6 +104,7 @@ def check_accelerate(
         stop_and_save_at: Optional[int] = None,
         save_dir: Optional[str] = None,
         ckpt: Optional[str] = None,
+        set_epoch_on_start: Optional[int] = None,
     ) -> Trajectory:
         torch.manual_seed(seed)
         cfg = DataLoaderConfiguration(
@@ -93,6 +119,8 @@ def check_accelerate(
         model, optimizer, dl = accelerator.prepare(model, optimizer, dl)
         if ckpt:
             accelerator.load_state(ckpt)
+        if set_epoch_on_start is not None:
+            dl.set_epoch(set_epoch_on_start)
 
         rec = TrajectoryRecorder(name, seed=seed)
         model.train()
@@ -120,7 +148,12 @@ def check_accelerate(
 
     with tempfile.TemporaryDirectory() as tmp:
         pre = run("pre-crash", max_steps, stop_and_save_at=resume_at, save_dir=tmp)
-        post = run("resumed", max_steps - resume_at, ckpt=tmp)
+        post = run(
+            "resumed",
+            max_steps - resume_at,
+            ckpt=tmp,
+            set_epoch_on_start=resume_epoch_index,
+        )
 
     # offset the resumed phase's step numbers so they continue the pre-crash run
     post.steps = [
