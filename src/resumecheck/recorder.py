@@ -14,36 +14,52 @@ def fingerprint_tensor(obj: Any) -> str:
     Handles tensors/arrays (via .tobytes()), scalars, and nested
     lists/tuples/dicts. Intended for test-scale data, not production
     throughput - hashing large batches every step is expensive.
+
+    The encoding is unambiguous: every part is length-prefixed and tagged
+    with its structural role, and tensor parts carry dtype and shape, so
+    distinct structures, dtypes, or shapes cannot collide on shared byte
+    content.
     """
     parts: List[bytes] = []
 
+    def emit(tag: bytes, payload: bytes) -> None:
+        parts.append(tag + str(len(payload)).encode() + b":" + payload)
+
     def walk(x: Any) -> None:
         if hasattr(x, "detach"):  # torch.Tensor
-            parts.append(x.detach().cpu().contiguous().numpy().tobytes())
-        elif hasattr(x, "tobytes") and not isinstance(x, (bytes, str)):
+            arr = x.detach().cpu().contiguous().numpy()
+            emit(b"tensor", f"{arr.dtype}|{arr.shape}|".encode() + arr.tobytes())
+            return
+        if hasattr(x, "tobytes") and not isinstance(x, (bytes, str)):
             try:
-                parts.append(x.tobytes())
+                dtype = getattr(x, "dtype", None)
+                shape = getattr(x, "shape", None)
+                header = f"{dtype}|{shape}|".encode()
+                emit(b"array", header + x.tobytes())
                 return
             except Exception:
                 pass
-        elif isinstance(x, dict):
+        if isinstance(x, dict):
+            emit(b"dict", b"" )
             for k in sorted(x, key=str):
                 walk(k)
                 walk(x[k])
             return
-        elif isinstance(x, (list, tuple)):
+        if isinstance(x, (list, tuple)):
+            emit(b"seq", b"")
             for v in x:
                 walk(v)
             return
-        elif isinstance(x, (bytes, str)):
-            parts.append(str(x).encode())
+        if isinstance(x, bytes):
+            emit(b"bytes", x)
             return
-        else:
-            parts.append(repr(x).encode())
+        if isinstance(x, str):
+            emit(b"str", x.encode())
             return
+        emit(b"repr", repr(x).encode())
 
     walk(obj)
-    return hashlib.sha256(b"|".join(parts)).hexdigest()[:16]
+    return hashlib.sha256(b"".join(parts)).hexdigest()[:16]
 
 
 @dataclass
