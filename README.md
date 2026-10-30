@@ -1,5 +1,7 @@
 # resumecheck
 
+![tests](https://github.com/anishpentyala/resumecheck/actions/workflows/ci.yml/badge.svg)
+
 Verify that **checkpoint-and-resume training matches uninterrupted training**.
 
 If your training job stops at step *k* and you resume from the checkpoint, do
@@ -95,6 +97,10 @@ bug.
   replays the epoch. resumecheck flags those too — deciding whether the
   divergence is acceptable is your call, and the test suite encodes known
   upstream cases as executable specs (see `tests/test_lightning_parity.py`).
+
+CI runs these exact pins on every push and PR (`.github/workflows/ci.yml`),
+with a no-silent-skip guard so a missing extra fails the leg instead of
+skipping the adapter module.
 
 Validated upstream versions (2026-10-30): the suite is verified against
 Lightning 2.6.6 (latest release at filing; #22077 verified affected) and
