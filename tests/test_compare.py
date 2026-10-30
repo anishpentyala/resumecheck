@@ -119,3 +119,26 @@ def test_one_sided_field_reported_once_not_per_step():
     r = compare_trajectories(a, b)
     assert not r.passed
     assert len(r.missing_fields) == 1
+
+
+def test_one_sided_batch_fingerprint_fails_closed():
+    """Regression (audit 2026-10-30): batch fingerprint recorded in only one
+    run must fail closed like loss/grad_norm - it is the strongest signal
+    and was silently skipped when one side lacked it."""
+    a = traj("full", [1.0, 0.9, 0.8], fps=["f0", "f1", "f2"])
+    b = traj("resumed", [1.0, 0.9, 0.8], fps=["f0", "f1", "f2"])
+    for s in b.steps:
+        s.batch_fingerprint = None
+    r = compare_trajectories(a, b)
+    assert not r.passed
+    assert any("batch_fingerprint" in m for m in r.missing_fields)
+
+
+def test_both_sides_batch_present_still_detects_divergence():
+    a = traj("full", [1.0, 0.9], fps=["f0", "f1", "f2"])
+    b = traj("resumed", [1.0, 0.9], fps=["f0", "f1", "f2"])
+    b.steps[1].batch_fingerprint = "different"
+    r = compare_trajectories(a, b)
+    assert not r.passed
+    assert r.first_divergence is not None
+    assert r.first_divergence.field == "batch"
