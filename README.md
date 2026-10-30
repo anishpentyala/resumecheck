@@ -89,6 +89,15 @@ bug.
   divergence is acceptable is your call, and the test suite encodes known
   upstream cases as executable specs (see `tests/test_lightning_parity.py`).
 
+## Examples
+
+`examples/tiny_gpt2_resume_parity.py` runs `check_hf` against a real
+pretrained model - `sshleifer/tiny-gpt2` (public, ~2MB) - on the real HF
+Trainer path, using SYNTHETIC fixed-seed token ids (no external text).
+Requires `pip install torch transformers accelerate`; about 2 minutes on
+CPU including the one-time model download. Reference run: PASS, 8 steps
+identical within rtol=1e-5, atol=1e-7.
+
 ## Install & test
 
 ```bash
