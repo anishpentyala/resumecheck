@@ -54,13 +54,55 @@ def test_misaligned_steps_fail():
     assert not r.passed and r.first_divergence.field == "step"
 
 
-def test_unequal_lengths_warn_but_compare_prefix():
+def test_unequal_lengths_fail_closed_unless_partial():
     r = compare_trajectories(traj("a", [1.0, 0.9, 0.8]), traj("b", [1.0, 0.9]))
-    assert r.passed
+    assert not r.passed
     assert r.steps_compared == 2
     assert any("step count" in m for m in r.missing_fields)
+    r2 = compare_trajectories(traj("a", [1.0, 0.9, 0.8]), traj("b", [1.0, 0.9]),
+                              allow_partial=True)
+    assert r2.passed
+    assert r2.steps_compared == 2
 
 
 def test_nan_equal_nan_passes():
     r = compare_trajectories(traj("a", [float("nan")]), traj("b", [float("nan")]))
     assert r.passed
+
+
+class TestFailClosed:
+    """Regression: compare must fail closed on missing/empty (audit R1)."""
+
+    def test_step_count_mismatch_fails_by_default(self):
+        a = traj("full", [1.0 - 0.01 * i for i in range(10)])
+        b = traj("resumed", [1.0 - 0.01 * i for i in range(5)])
+        r = compare_trajectories(a, b)
+        assert not r.passed
+        assert r.steps_compared == 5
+        assert r.summary.startswith("FAIL")
+
+    def test_allow_partial_scopes_to_prefix(self):
+        a = traj("full", [1.0 - 0.01 * i for i in range(10)])
+        b = traj("resumed", [1.0 - 0.01 * i for i in range(5)])
+        r = compare_trajectories(a, b, allow_partial=True)
+        assert r.passed
+        assert r.steps_compared == 5
+        assert r.missing_fields  # mismatch still recorded as a warning
+
+    def test_empty_vs_empty_fails(self):
+        r = compare_trajectories(Trajectory("a"), Trajectory("b"))
+        assert not r.passed
+
+    def test_empty_vs_empty_fails_even_with_allow_partial(self):
+        r = compare_trajectories(Trajectory("a"), Trajectory("b"),
+                                 allow_partial=True)
+        assert not r.passed
+
+    def test_one_sided_field_fails_closed(self):
+        a = traj("full", [1.0, 0.9, 0.8])
+        b = traj("resumed", [1.0, 0.9, 0.8])
+        for i, s in enumerate(a.steps):
+            s.grad_norm = 0.5
+            b.steps[i].grad_norm = None
+        r = compare_trajectories(a, b)
+        assert not r.passed
