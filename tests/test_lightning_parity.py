@@ -108,24 +108,67 @@ def test_mid_epoch_resume_with_plain_dataloader_is_flagged():
     assert report.first_divergence.step == 4
 
 
-def test_epoch_boundary_max_steps_resume_regression_lightning_22077():
-    # Lightning bug: a checkpoint saved when max_steps coincides with the end
-    # of an epoch resumes with the next epoch's first batch replayed and its
-    # last batch dropped (no warning). Tracked upstream:
-    # https://github.com/Lightning-AI/pytorch-lightning/issues/22077
-    # resumecheck must flag it; with shuffle=False the duplicate IS the same
-    # data as the expected batch, so the mismatch surfaces one step later.
+import importlib.metadata as _importlib_metadata
+
+from packaging.version import Version as _Version
+
+_LIGHTNING_V = _Version(_importlib_metadata.version("lightning"))
+_IS_RELEASE = not (_LIGHTNING_V.is_prerelease or _LIGHTNING_V.is_devrelease)
+# lightning#22077 was reproduced on the latest release (2.6.6) and on
+# unpatched master (2.7.0.dev0) as of 2026-10-30; the maintainer's fix
+# (Lightning-AI/pytorch-lightning#22080) is not in any release yet, so
+# every released version is treated as affected. Dev builds may carry the
+# patch, so bug PRESENCE is asserted only on released versions; when a
+# future release ships the fix, the reproduction test below trips its
+# "appears fixed" assertion and this grounding must be updated.
+_KNOWN_AFFECTED_RELEASE = _IS_RELEASE
+
+_LIGHTNING_22077 = (
+    "lightning#22077: epoch-boundary max_steps resume replays/drops batches "
+    "(https://github.com/Lightning-AI/pytorch-lightning/issues/22077)"
+)
+
+
+def _epoch_boundary_report():
     import warnings
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        report = check_lightning(
+        return check_lightning(
             module_factory=TinyModel,
             datamodule_factory=TinyDM,
             max_steps=8,
             resume_at=4,
             seed=42,
         )
+
+
+@pytest.mark.xfail(
+    _KNOWN_AFFECTED_RELEASE,
+    strict=True,
+    raises=AssertionError,
+    reason=_LIGHTNING_22077,
+)
+def test_epoch_boundary_resume_parity():
+    """Positive check: epoch-boundary resume SHOULD reproduce the
+    uninterrupted run. Must pass on fixed upstream; strictly xfailed on
+    releases where #22077 is known-present so a surprise fix is loud
+    (XPASS(strict) fails), and a genuine pass is required everywhere else."""
+    report = _epoch_boundary_report()
+    assert report.passed, report.summary
+
+
+@pytest.mark.skipif(
+    not _IS_RELEASE,
+    reason="bug-presence reproduction is version-grounded on released "
+    "lightning; dev builds may carry the #22080 patch",
+)
+def test_epoch_boundary_max_steps_resume_regression_lightning_22077():
+    # Negative control: resumecheck must FLAG the bug on released versions
+    # where it is known-present. With shuffle=False the duplicate IS the
+    # same data as the expected batch, so the mismatch surfaces one step
+    # later.
+    report = _epoch_boundary_report()
     assert not report.passed, "lightning#22077 appears fixed - update this spec"
     assert report.first_divergence.field == "batch"
 
