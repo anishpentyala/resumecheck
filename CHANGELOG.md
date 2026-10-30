@@ -4,6 +4,18 @@
 
 ### Added
 
+- `check_accelerate(..., num_workers=N)`: worker-count axis for the
+  stateful comparator. With it comes a verified finding: on the two
+  verified stacks, num_workers>=1 makes `prepare()` run the epoch
+  through the original plain RandomSampler (global-RNG draw at prepare
+  time), bypassing the seedable sampler entirely, and mid-epoch resume
+  duplicates/drops samples (no restorable cursor). Strict-xfail positive
+  spec + negative control gated on the exact source fingerprints of the
+  verified stacks; no verified workaround; raw torchdata-only control
+  restores exactly at all worker counts. 2 new tests.
+
+### Added
+
 - `check_accelerate_skip_path(...)`: comparator for the documented
   `skip_first_batches` resume path. On the verified-affected mechanism
   fingerprint, mid-epoch resume shifts every post-resume epoch back one
