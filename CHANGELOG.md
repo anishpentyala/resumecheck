@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- Extended the Accelerate boundary-replay spec's verified-affected range
+  after installing a standalone Python 3.11 and testing current master:
+  the replay reproduces identically on master 1.16.0.dev0 @ 90b233c
+  (torchdata 0.11.0), and the `set_epoch` workaround restores parity
+  there too. 1.15.0 remains the latest PyPI release, so the bug is
+  unpatched upstream. Gate, spec header and README updated.
+
 ### Fixed
 
 - Corrected the Accelerate boundary-replay mechanism text (adapter spec
