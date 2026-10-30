@@ -4,6 +4,19 @@
 
 ### Added
 
+- Characterized the workers>0 boundary and later-epoch mid-epoch
+  resume behavior (follow-up to the num_workers axis): an epoch-boundary
+  resume with num_workers>=1 matches only the first post-resume epoch,
+  then duplicates its permutation (uncheckpointed shard counter
+  restarts at 0); a mid-epoch resume diverges in ANY epoch, not just
+  epoch 0 (sampler permutation not serialized; restored iterator
+  re-draws a stale permutation). Verified across num_workers=1/2/4 and
+  seeds 42/7 on both verified stacks; encoded as strict-xfail positive
+  specs + negative controls on the same fingerprints. 4 new tests.
+
+
+### Added
+
 - `check_accelerate(..., num_workers=N)`: worker-count axis for the
   stateful comparator. With it comes a verified finding: on the two
   verified stacks, num_workers>=1 makes `prepare()` run the epoch
