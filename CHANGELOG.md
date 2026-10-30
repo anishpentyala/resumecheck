@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+
+- `check_accelerate(..., boundary_set_epoch_workaround=True)`: opt-in
+  comparator mode that applies the verified caller-side `set_epoch`
+  realignment after `load_state` and verifies boundary-resume parity with
+  the mitigation. Fail-closed: rejects `resume_at` values that are not an
+  exact epoch boundary. Distinct from the raw documented-path check,
+  which is unchanged; the mode verifies the mitigation, not an upstream
+  fix. 2 new tests (parity holds with mitigation on 1.15.0 and master;
+  mid-epoch misuse raises).
+
+### Fixed
+
+- Rebound the boundary-replay spec gate from the `1.16.0.dev0` dev version
+  string (shared by every master snapshot, fixed or not) to the SHA-256
+  fingerprint of the mechanism-carrying `DataLoaderShard.__iter__` +
+  `set_epoch` source. Both verified snapshots (1.15.0 release, master
+  @ 90b233c) have byte-identical mechanism source; any build whose
+  mechanism source differs asserts parity normally.
+
 ### Changed
 
 - Extended the Accelerate boundary-replay spec's verified-affected range
