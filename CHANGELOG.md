@@ -29,12 +29,12 @@
 
 ### Tests
 
-- The Lightning #22077 regression spec is now version-grounded instead of
-  asserting bug-presence unconditionally: a positive epoch-boundary parity
-  test runs everywhere and must pass on fixed upstream (strict-xfail on
-  current released versions, all of which carry the bug), while the
-  negative-control reproduction test runs only on released versions and
-  trips loudly when a release ships the fix. Verified in both
-  environments: lightning 2.6.6 (30 passed, 1 skipped, 1 xfailed) and
-  master 2.7.0.dev0 with the #22080 patch (30 passed, 2 skipped).
+- The Lightning #22077 regression spec is now pinned to verified versions
+  instead of asserting bug-presence unconditionally: a positive
+  epoch-boundary parity test asserts compatibility normally on every
+  version (strict-xfail only on 2.6.6, the verified-affected release), so
+  a failure on any untested version is a genuine finding; the
+  negative-control reproduction test runs only on 2.6.6. Verified:
+  lightning 2.6.6 (30 passed, 1 skipped, 1 xfailed) and master
+  2.7.0.dev0 + #22080 patch (30 passed, 2 skipped).
 - README now states the validated upstream versions and the gate design.
