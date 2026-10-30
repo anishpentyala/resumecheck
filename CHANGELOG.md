@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- **Accelerate adapter** (`resumecheck.accelerate.check_accelerate`):
+  verifies save_state/load_state resume parity on the documented
+  `use_stateful_dataloader` + `use_seedable_sampler` path. Mid-epoch
+  resume passes on accelerate 1.15.0 + torchdata 0.11.0; a checkpoint
+  saved exactly at an epoch boundary is caught replaying the completed
+  epoch (pinned executable spec, verified-affected versions only).
+  New `accel` extra: `accelerate>=1.1`, `torchdata>=0.8`, `torch>=2.0`.
+
 - HF adapter: added an epoch-boundary resume parity test (n=8, batch 2 ->
   4 steps/epoch, resume_at=4, max_steps=8), the HF analog of the Lightning
   #22077 boundary case. It PASSES on transformers 5.20.2 + accelerate,
