@@ -361,3 +361,128 @@ def test_accelerate_workers_mid_epoch_resume_regression():
         "accelerate workers>0 mid-epoch divergence appears fixed - "
         "update this spec"
     )
+
+
+_WORKERS_BOUNDARY_EPOCH3 = (
+    "accelerate stateful path with num_workers>=1: an epoch-boundary "
+    "resume matches only for the first post-resume epoch (the frozen "
+    "counter regimes coincide), then the SECOND post-resume epoch "
+    "duplicates the first's permutation - the shard's uncheckpointed "
+    "iteration counter restarts at 0, so post-resume epoch N draws the "
+    "seed of epoch N-1"
+)
+
+
+@pytest.mark.xfail(
+    _VERIFIED_AFFECTED_WORKERS,
+    strict=True,
+    raises=AssertionError,
+    reason=_WORKERS_BOUNDARY_EPOCH3,
+)
+def test_accelerate_workers_boundary_third_epoch_parity():
+    """Positive check: with num_workers=2, an epoch-boundary resume
+    SHOULD reproduce the uninterrupted run through the second
+    post-resume epoch. Two-epoch horizons pass coincidentally on the
+    verified stacks (both runs share the same frozen counter regime);
+    the divergence surfaces at the second post-resume epoch, which
+    repeats the first post-resume epoch's permutation. Strict-xfail
+    only on the two verified-affected stacks; elsewhere it asserts
+    compatibility normally. Verified across num_workers=1/2/4 and
+    seeds 42/7."""
+    report = check_accelerate(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=12,  # 3 epochs
+        resume_at=4,  # exact boundary: end of epoch 0
+        seed=42,
+        num_workers=2,
+    )
+    assert report.passed, report.summary
+
+
+@pytest.mark.skipif(
+    not _VERIFIED_AFFECTED_WORKERS,
+    reason="workers>0 boundary epoch-3 divergence reproduction is pinned "
+    "to the two verified-affected stacks; other builds are covered by "
+    "the positive parity test asserting compatibility normally",
+)
+def test_accelerate_workers_boundary_third_epoch_regression():
+    """Negative control: resumecheck must FLAG the duplication of the
+    first post-resume epoch's permutation, with the first 8 steps (two
+    epochs) matching exactly and the divergence landing at the first
+    step of the second post-resume epoch."""
+    report = check_accelerate(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=12,
+        resume_at=4,
+        seed=42,
+        num_workers=2,
+    )
+    assert not report.passed, (
+        "accelerate workers>0 boundary epoch-3 duplication appears "
+        "fixed - update this spec"
+    )
+    assert report.steps_compared == 8
+    assert report.first_divergence.step == 9
+    assert report.first_divergence.field == "batch"
+
+
+_WORKERS_MIDEPOCH_ANY_EPOCH = (
+    "accelerate stateful path with num_workers>=1: the mid-epoch resume "
+    "divergence is not epoch-0-specific - a mid-epoch resume in a later "
+    "epoch also duplicates and drops samples (the saved state does not "
+    "serialize the sampler permutation and the restored iterator "
+    "carries a stale worker base seed)"
+)
+
+
+@pytest.mark.xfail(
+    _VERIFIED_AFFECTED_WORKERS,
+    strict=True,
+    raises=AssertionError,
+    reason=_WORKERS_MIDEPOCH_ANY_EPOCH,
+)
+def test_accelerate_workers_mid_epoch_later_epoch_parity():
+    """Positive check: with num_workers=2, a mid-epoch resume inside
+    epoch 1 (past the prepare()-time snapshot iterator's epoch) SHOULD
+    reproduce the uninterrupted run. Strict-xfail only on the two
+    verified-affected stacks; elsewhere it asserts compatibility
+    normally. Verified across num_workers=1/2/4 and seeds 42/7."""
+    report = check_accelerate(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=12,
+        resume_at=6,  # 2 batches into epoch 1
+        seed=42,
+        num_workers=2,
+    )
+    assert report.passed, report.summary
+
+
+@pytest.mark.skipif(
+    not _VERIFIED_AFFECTED_WORKERS,
+    reason="workers>0 later-epoch mid-epoch divergence reproduction is "
+    "pinned to the two verified-affected stacks; other builds are "
+    "covered by the positive parity test asserting compatibility "
+    "normally",
+)
+def test_accelerate_workers_mid_epoch_later_epoch_regression():
+    """Negative control: resumecheck must FLAG the later-epoch
+    mid-epoch divergence, with the first 6 steps matching exactly and
+    the divergence landing at the first post-resume step."""
+    report = check_accelerate(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=12,
+        resume_at=6,
+        seed=42,
+        num_workers=2,
+    )
+    assert not report.passed, (
+        "accelerate workers>0 later-epoch mid-epoch divergence appears "
+        "fixed - update this spec"
+    )
+    assert report.steps_compared == 6
+    assert report.first_divergence.step == 7
+    assert report.first_divergence.field == "batch"

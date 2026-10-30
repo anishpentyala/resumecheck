@@ -18,3 +18,27 @@
 - Mechanism traced with PID-aware logging + identity checks (first "worker-side sampler" hypothesis withdrawn after main's challenge): prepare()'s eager state_dict creates the iterator, which runs the ORIGINAL plain RandomSampler (generator=None -> global RNG); epoch loop reuses it; SeedableRandomSampler never iterates; saved state has no cursor (_num_yielded=None). Raw torchdata-only restores exactly at all worker counts -> accelerate's prepared-loader layer introduces the divergence.
 - data_seed ignored with workers>0 (7 vs 8 identical); global seed changes permutation. Boundary-with-workers passed 4 configs - uncharacterized, no claim. No verified workaround.
 - Spec: dual source-fingerprint gate (1.15.0: b38c0ad1..., master@90b233c: a77f1715...) + torchdata 0.11.0 pin; positive strict-xfail + negative control; num_workers axis added to check_accelerate.
+
+## 2026-10-30 (later): workers>0 boundary + later-epoch mid-epoch characterization
+
+Extended the F4 lane after PR #15. Probe-driven characterization
+(/home/sandbox/probes/boundary_workers_probe.py and
+boundary_workers_matrix.py; PID-aware sampler instrumentation plus a
+workers {1,2,4} x seeds {42,7} matrix with full nested state dumps):
+
+- The seedable bypass is epoch-0-only in an uninterrupted run: epoch 0
+  iterates through prepare()'s eager snapshot iterator (original plain
+  RandomSampler, global RNG); epochs 1+ create fresh iterators through
+  SeedableRandomSampler with an aligned counter.
+- Boundary resume with workers>0 passes two-epoch horizons
+  COINCIDENTALLY (frozen counter regimes coincide); the second
+  post-resume epoch duplicates the first's permutation (shard counter
+  restarts at 0 post-resume). Verified across the full matrix.
+- Mid-epoch resume diverges in ANY epoch (epoch 0 and epoch 1
+  verified): saved state carries batch counts + worker base seed but
+  _sampler_iter_state is null; restored iterator re-draws a stale
+  permutation.
+- Encoded as 4 spec tests (2 strict-xfail positive + 2 negative
+  controls) on the existing dual-fingerprint workers gate; suites:
+  42 passed + 6 xfailed (rcv), 42 passed + 1 skipped + 5 xfailed (plv),
+  36 passed + 2 skipped + 5 xfailed (acc-master). Published as PR #16.

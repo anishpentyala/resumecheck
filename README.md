@@ -145,25 +145,44 @@ and is a caller-side workaround, not an upstream fix - the raw
 documented-path check above is unchanged.
 
 num_workers >= 1 (verified 2026-10-30 on accelerate 1.15.0 and master
-1.16.0.dev0 @ 90b233c, torchdata 0.11.0, single process CPU): mid-epoch
-resume DIVERGES - samples are duplicated and dropped. Traced mechanism:
+1.16.0.dev0 @ 90b233c, torchdata 0.11.0, single process CPU): resume
+DIVERGES in every configuration characterized so far. Traced mechanism:
 `prepare()` eagerly creates the loader iterator (the state snapshot in
-`DataLoaderAdapter.__init__`), and on the workers>0 path that iterator
-runs the user's ORIGINAL plain `RandomSampler` (`shuffle=True` default,
-`generator=None`) drawn from the process global RNG; the epoch loop
-reuses it. The `SeedableRandomSampler` accelerate swaps into the shard
-never iterates - `data_seed` and the epoch counter are inert (verified:
-data_seed 7 vs 8 give identical permutations; changing the global seed
-changes them), and the saved state carries no restorable sample cursor
-(`_num_yielded` is None). Raw torchdata `StatefulDataLoader` without
-accelerate restores exactly at workers=0/1/2/4, so the divergence is
-introduced by accelerate's prepared-loader layer. This shares the eager
+`DataLoaderAdapter.__init__`), and on the workers>0 path that snapshot
+iterator runs the user's ORIGINAL plain `RandomSampler`
+(`shuffle=True` default, `generator=None`) drawn from the process
+global RNG. Epoch 0 iterates through it - the `SeedableRandomSampler`
+accelerate swaps in afterwards never drives epoch 0, so `data_seed` is
+inert for epoch 0 (verified: data_seed 7 vs 8 give identical epoch-0
+permutations; changing the global seed changes them). Later epochs of
+an uninterrupted run create fresh iterators through the seedable
+sampler with an aligned epoch counter. Raw torchdata
+`StatefulDataLoader` without accelerate restores exactly at
+workers=0/1/2/4, so the divergences below are introduced by
+accelerate's prepared-loader layer. This shares the eager
 prepare()-time iterator root with the open multi-process issue
 huggingface/accelerate#4204; the single-process seedable-bypass and
-resume divergence are beyond that issue's scope. No workaround is
-verified - the `set_epoch` mitigations do not apply to this path. The
-workers>0 boundary-resume behavior is uncharacterized (no claim).
-Encoded as a spec gated on the exact source fingerprints of the two
+resume divergences are beyond that issue's scope. No workaround is
+verified - the `set_epoch` mitigations do not apply to this path.
+
+Three verified consequences (each across num_workers=1/2/4 and seeds
+42/7):
+
+1. Mid-epoch resume duplicates and drops samples - in epoch 0 AND in
+   later epochs. The saved state does not serialize the sampler
+   permutation (`_sampler_iter_state` is null; it carries batch counts
+   and a worker base seed), and the restored iterator re-draws a stale
+   permutation rather than the interrupted epoch's.
+2. An epoch-boundary resume matches only the first post-resume epoch
+   (the frozen counter regimes coincide, so two-epoch horizons pass
+   coincidentally); the SECOND post-resume epoch then duplicates the
+   first's permutation, because the shard's uncheckpointed iteration
+   counter restarts at 0 and post-resume epoch N draws epoch N-1's
+   seed.
+3. Epoch 0's permutation depends on the process global RNG at
+   prepare() time, not on `data_seed`.
+
+Encoded as specs gated on the exact source fingerprints of the two
 verified stacks (a verified-stack marker, not a claim that every build
 sharing the fingerprint is affected); any other build asserts
 compatibility normally.
