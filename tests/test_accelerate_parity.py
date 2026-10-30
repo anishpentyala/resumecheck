@@ -79,6 +79,42 @@ _VERIFIED_AFFECTED = (
 )
 
 
+def _workers_region_fingerprint() -> str:
+    """SHA-256 of the source of the accelerate classes carrying the
+    workers>0 mechanism region: the seedable sampler, the eager
+    prepare()-time state snapshot in DataLoaderAdapter, and the shard's
+    iteration lifecycle."""
+    import hashlib
+    import inspect
+
+    from accelerate import data_loader
+
+    src = (
+        inspect.getsource(data_loader.SeedableRandomSampler)
+        + inspect.getsource(data_loader.DataLoaderAdapter)
+        + inspect.getsource(data_loader.DataLoaderShard.__iter__)
+        + inspect.getsource(data_loader.DataLoaderShard.set_epoch)
+    )
+    return hashlib.sha256(src.encode()).hexdigest()
+
+
+# Verified-affected stacks for the workers>0 divergence (2026-10-30),
+# each confirmed by direct reproduction: accelerate 1.15.0 (latest PyPI
+# release) and master 1.16.0.dev0 @ commit 90b233c, both with
+# torchdata 0.11.0. The gate binds to the exact source fingerprints of
+# the verified stacks - a verified-stack marker, not a claim that every
+# build sharing the fingerprint is affected; any other build is covered
+# by the positive parity test asserting compatibility normally.
+_VERIFIED_AFFECTED_WORKERS_FINGERPRINTS = {
+    "b38c0ad141ace80fca50ccbb72e5a20e0e7708f341c52333704f13622aa15aa7": "accelerate 1.15.0",
+    "a77f17159649213cb3cff147b2f1af768d3475dbe73500a692d75164434aa273": "accelerate master 1.16.0.dev0 @ 90b233c",
+}
+_VERIFIED_AFFECTED_WORKERS = (
+    _workers_region_fingerprint() in _VERIFIED_AFFECTED_WORKERS_FINGERPRINTS
+    and _importlib_metadata.version("torchdata").startswith("0.11.0")
+)
+
+
 class TinyDataset(Dataset):
     def __init__(self, n=16):
         self.x = torch.arange(n, dtype=torch.float32).reshape(n, 1) / n
@@ -270,3 +306,58 @@ def test_accelerate_skip_path_workaround_rejects_boundary():
             seed=42,
             skip_path_set_epoch_workaround=True,
         )
+
+
+_WORKERS_MIDEPOCH_DIVERGENCE = (
+    "accelerate stateful path with num_workers>=1: prepare() eagerly "
+    "creates the iterator through the original plain RandomSampler "
+    "(global-RNG draw), the seedable sampler never iterates, and the "
+    "saved state carries no restorable sample cursor - mid-epoch resume "
+    "duplicates and drops samples"
+)
+
+
+@pytest.mark.xfail(
+    _VERIFIED_AFFECTED_WORKERS,
+    strict=True,
+    raises=AssertionError,
+    reason=_WORKERS_MIDEPOCH_DIVERGENCE,
+)
+def test_accelerate_workers_mid_epoch_resume_parity():
+    """Positive check: with num_workers=2, mid-epoch resume SHOULD
+    reproduce the uninterrupted run. Strict-xfail only on the two
+    verified-affected stacks; everywhere else it asserts compatibility
+    normally - a real pass on fixed upstream, a loud failure on any
+    other broken build."""
+    report = check_accelerate(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=6,
+        resume_at=3,  # mid-epoch: 4 steps/epoch over n=8 at bs=2
+        seed=42,
+        num_workers=2,
+    )
+    assert report.passed, report.summary
+
+
+@pytest.mark.skipif(
+    not _VERIFIED_AFFECTED_WORKERS,
+    reason="workers>0 divergence reproduction is pinned to the two "
+    "verified-affected stacks; other builds are covered by the positive "
+    "parity test asserting compatibility normally",
+)
+def test_accelerate_workers_mid_epoch_resume_regression():
+    """Negative control: resumecheck must FLAG the workers>0 mid-epoch
+    divergence on the verified-affected stacks."""
+    report = check_accelerate(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=6,
+        resume_at=3,
+        seed=42,
+        num_workers=2,
+    )
+    assert not report.passed, (
+        "accelerate workers>0 mid-epoch divergence appears fixed - "
+        "update this spec"
+)
