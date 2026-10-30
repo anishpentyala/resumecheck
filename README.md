@@ -79,6 +79,10 @@ bug.
   those observables.
 - A PASS means *"these observables matched on this setup"*, not *"resume is
   correct for every configuration"*.
+- Statefulness alone is not a guarantee: even with a stateful DataLoader,
+  shuffling across an epoch boundary and sampler/RNG details can still
+  diverge on resume. A divergence there can be framework behavior, not a
+  defect - investigate before blaming your checkpoint code.
 - Designed for **deterministic CPU verification**. Nondeterministic kernels
   (some CUDA ops), multi-worker dataloader timing, and distributed training
   can produce legitimate differences without any defect. Widen `rtol`/`atol`
@@ -88,6 +92,15 @@ bug.
   replays the epoch. resumecheck flags those too — deciding whether the
   divergence is acceptable is your call, and the test suite encodes known
   upstream cases as executable specs (see `tests/test_lightning_parity.py`).
+
+## Examples
+
+`examples/tiny_gpt2_resume_parity.py` runs `check_hf` against a real
+pretrained model - `sshleifer/tiny-gpt2` (public, ~2MB) - on the real HF
+Trainer path, using SYNTHETIC fixed-seed token ids (no external text).
+Requires `pip install torch transformers accelerate`; about 2 minutes on
+CPU including the one-time model download. Reference run: PASS, 8 steps
+identical within rtol=1e-5, atol=1e-7.
 
 ## Install & test
 

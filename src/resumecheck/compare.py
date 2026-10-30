@@ -45,6 +45,7 @@ def compare_trajectories(
     check_loss: bool = True,
     check_batch: bool = True,
     check_grad_norm: bool = True,
+    allow_partial: bool = False,
 ) -> CompareReport:
     """Compare step-by-step. The first field to exceed tolerance at the
     earliest step is reported as the divergence - that step is where resume
@@ -53,6 +54,13 @@ def compare_trajectories(
     Steps are matched by their ordinal index (0, 1, 2, ... of the full
     training run), so the resumed trajectory must be the concatenation of the
     pre-crash and post-resume phases in training order.
+
+    Fails closed: a step-count mismatch, fields recorded in only one run, or
+    nothing comparable at all means the runs were NOT verified, so the
+    report fails (the condition is listed in ``missing_fields``). Pass
+    ``allow_partial=True`` to explicitly scope the check to the common
+    prefix: a step-count mismatch then demotes to a warning, while having
+    nothing comparable or one-sided fields still fails.
     """
     a = sorted(uninterrupted.steps, key=lambda s: s.step)
     b = sorted(resumed.steps, key=lambda s: s.step)
@@ -136,12 +144,28 @@ def compare_trajectories(
                     summary=f"DIVERGED at step {sa.step}: {fname} {sa_v} vs {sb_v}",
                 )
 
-    return CompareReport(
-        passed=not missing or True,
-        steps_compared=n,
-        missing_fields=missing,
-        summary=(
+    if allow_partial:
+        hard_fail = [m for m in missing if not m.startswith("step count differs")]
+    else:
+        hard_fail = missing
+    passed = not hard_fail
+    if passed:
+        summary = (
             f"PASS: {n} steps identical within rtol={rtol}, atol={atol}"
             + (f" (warnings: {'; '.join(missing)})" if missing else "")
-        ),
-                )
+        )
+    else:
+        summary = (
+            f"FAIL: {'; '.join(hard_fail)}"
+            + (
+                f" (compared {n} steps, no divergence within compared prefix)"
+                if n
+                else ""
+            )
+        )
+    return CompareReport(
+        passed=passed,
+        steps_compared=n,
+        missing_fields=missing,
+        summary=summary,
+        )
