@@ -93,6 +93,15 @@ bug.
   divergence is acceptable is your call, and the test suite encodes known
   upstream cases as executable specs (see `tests/test_lightning_parity.py`).
 
+Validated upstream versions (2026-10-30): the suite is verified against
+Lightning 2.6.6 (latest release) and master 2.7.0.dev0 with the #22080
+fix applied. The Lightning #22077 regression spec is version-grounded:
+bug-presence is asserted only on released versions (all current releases
+are affected), while a strict-xfail positive parity test asserts the
+correct behavior everywhere - it must pass once the upstream fix ships,
+and XPASS(strict) on a current release fails loudly to signal the fix
+landed.
+
 ## Examples
 
 `examples/tiny_gpt2_resume_parity.py` runs `check_hf` against a real

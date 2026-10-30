@@ -24,3 +24,17 @@
 
 - 5 new regression tests covering the one-sided-batch fail and the
   structure/dtype/shape fingerprint cases. 29 passed locally.
+
+## Unreleased
+
+### Tests
+
+- The Lightning #22077 regression spec is now version-grounded instead of
+  asserting bug-presence unconditionally: a positive epoch-boundary parity
+  test runs everywhere and must pass on fixed upstream (strict-xfail on
+  current released versions, all of which carry the bug), while the
+  negative-control reproduction test runs only on released versions and
+  trips loudly when a release ships the fix. Verified in both
+  environments: lightning 2.6.6 (30 passed, 1 skipped, 1 xfailed) and
+  master 2.7.0.dev0 with the #22080 patch (30 passed, 2 skipped).
+- README now states the validated upstream versions and the gate design.
