@@ -183,3 +183,90 @@ def test_accelerate_workaround_mode_rejects_mid_epoch():
             seed=42,
             boundary_set_epoch_workaround=True,
         )
+
+
+_SKIP_PATH_SHIFT = (
+    "accelerate skip_first_batches resume shifts every post-resume epoch "
+    "back one permutation (the skip wrapper consumes the sampler without "
+    "advancing DataLoaderShard's iteration counter)"
+)
+
+
+@pytest.mark.xfail(
+    _VERIFIED_AFFECTED,
+    strict=True,
+    raises=AssertionError,
+    reason=_SKIP_PATH_SHIFT,
+)
+def test_accelerate_skip_path_resume_parity():
+    """Positive check: the documented skip_first_batches resume SHOULD
+    reproduce the uninterrupted run. Strict-xfail only on the
+    verified-affected mechanism fingerprint; elsewhere it asserts
+    compatibility normally."""
+    from resumecheck.accelerate import check_accelerate_skip_path
+
+    report = check_accelerate_skip_path(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=8,
+        resume_at=3,  # mid-epoch: 4 steps/epoch over n=8 at bs=2
+        seed=42,
+    )
+    assert report.passed, report.summary
+
+
+@pytest.mark.skipif(
+    not _VERIFIED_AFFECTED,
+    reason="skip-path shift reproduction is pinned to the "
+    "verified-affected mechanism fingerprint; other builds are covered by "
+    "the positive parity test asserting compatibility normally",
+)
+def test_accelerate_skip_path_resume_regression():
+    """Negative control: resumecheck must FLAG the post-resume epoch
+    permutation shift on the verified-affected mechanism."""
+    from resumecheck.accelerate import check_accelerate_skip_path
+
+    report = check_accelerate_skip_path(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=8,
+        resume_at=3,
+        seed=42,
+    )
+    assert not report.passed, (
+        "accelerate skip-path shift appears fixed - update this spec"
+    )
+
+
+def test_accelerate_skip_path_resume_with_set_epoch_workaround():
+    """Opt-in mitigation mode: with set_epoch(epoch) applied to each
+    post-resume epoch, skip-path resume parity must hold - on every
+    accelerate build (it verifies the mitigation, not the raw path)."""
+    from resumecheck.accelerate import check_accelerate_skip_path
+
+    report = check_accelerate_skip_path(
+        model_factory=TinyModel,
+        train_dataset=TinyDataset(n=8),
+        max_steps=8,
+        resume_at=3,
+        seed=42,
+        skip_path_set_epoch_workaround=True,
+    )
+    assert report.passed, report.summary
+
+
+def test_accelerate_skip_path_workaround_rejects_boundary():
+    """Fail-closed: the skip-path mitigation is verified only for
+    mid-epoch resumes; a boundary resume_at with the flag on must be
+    rejected, not silently applied."""
+    from resumecheck.accelerate import check_accelerate_skip_path
+
+    with pytest.raises(ValueError, match="mid-epoch"):
+        check_accelerate_skip_path(
+            model_factory=TinyModel,
+            train_dataset=TinyDataset(n=8),
+            max_steps=8,
+            resume_at=4,
+            seed=42,
+            skip_path_set_epoch_workaround=True,
+        )

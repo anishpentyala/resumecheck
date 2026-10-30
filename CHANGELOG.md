@@ -4,6 +4,17 @@
 
 ### Added
 
+- `check_accelerate_skip_path(...)`: comparator for the documented
+  `skip_first_batches` resume path. On the verified-affected mechanism
+  fingerprint, mid-epoch resume shifts every post-resume epoch back one
+  permutation - encoded as a strict-xfail positive spec + negative
+  control. Opt-in `skip_path_set_epoch_workaround=True` applies the
+  verified `set_epoch(epoch)` realignment to post-resume epochs and
+  verifies parity WITH the mitigation (fail-closed to mid-epoch resumes;
+  caller-side mitigation, not an upstream fix). 4 new tests.
+
+### Added
+
 - `check_accelerate(..., boundary_set_epoch_workaround=True)`: opt-in
   comparator mode that applies the verified caller-side `set_epoch`
   realignment after `load_state` and verifies boundary-resume parity with

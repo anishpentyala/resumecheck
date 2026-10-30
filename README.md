@@ -144,6 +144,15 @@ WITH the mitigation. It is fail-closed (rejects non-boundary `resume_at`)
 and is a caller-side workaround, not an upstream fix - the raw
 documented-path check above is unchanged.
 
+The documented `skip_first_batches` path is covered by a separate check,
+`check_accelerate_skip_path(...)`. On the verified-affected mechanism,
+mid-epoch resume shifts every post-resume epoch back one permutation
+(the skip wrapper never advances the shard's counter) - encoded as a
+fingerprint-gated strict-xfail spec with a negative control. Its opt-in
+mitigation mode (`skip_path_set_epoch_workaround=True`) applies the
+verified `set_epoch(epoch)` realignment to each post-resume epoch and
+verifies parity WITH it; fail-closed to mid-epoch resumes.
+
 ## Examples
 
 `examples/tiny_gpt2_resume_parity.py` runs `check_hf` against a real
