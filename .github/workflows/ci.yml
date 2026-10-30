@@ -39,7 +39,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install -e . pytest
+      # numpy is a test-fixture dep here: torch does not require it, and
+      # unlike the adapter legs no framework extra pulls it in transitively.
+      - run: pip install -e . pytest numpy==2.2.6
       - run: python -m pytest tests/test_recorder.py tests/test_cli.py tests/test_compare.py -q
 
   lightning:
