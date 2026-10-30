@@ -144,6 +144,30 @@ WITH the mitigation. It is fail-closed (rejects non-boundary `resume_at`)
 and is a caller-side workaround, not an upstream fix - the raw
 documented-path check above is unchanged.
 
+num_workers >= 1 (verified 2026-10-30 on accelerate 1.15.0 and master
+1.16.0.dev0 @ 90b233c, torchdata 0.11.0, single process CPU): mid-epoch
+resume DIVERGES - samples are duplicated and dropped. Traced mechanism:
+`prepare()` eagerly creates the loader iterator (the state snapshot in
+`DataLoaderAdapter.__init__`), and on the workers>0 path that iterator
+runs the user's ORIGINAL plain `RandomSampler` (`shuffle=True` default,
+`generator=None`) drawn from the process global RNG; the epoch loop
+reuses it. The `SeedableRandomSampler` accelerate swaps into the shard
+never iterates - `data_seed` and the epoch counter are inert (verified:
+data_seed 7 vs 8 give identical permutations; changing the global seed
+changes them), and the saved state carries no restorable sample cursor
+(`_num_yielded` is None). Raw torchdata `StatefulDataLoader` without
+accelerate restores exactly at workers=0/1/2/4, so the divergence is
+introduced by accelerate's prepared-loader layer. This shares the eager
+prepare()-time iterator root with the open multi-process issue
+huggingface/accelerate#4204; the single-process seedable-bypass and
+resume divergence are beyond that issue's scope. No workaround is
+verified - the `set_epoch` mitigations do not apply to this path. The
+workers>0 boundary-resume behavior is uncharacterized (no claim).
+Encoded as a spec gated on the exact source fingerprints of the two
+verified stacks (a verified-stack marker, not a claim that every build
+sharing the fingerprint is affected); any other build asserts
+compatibility normally.
+
 The documented `skip_first_batches` path is covered by a separate check,
 `check_accelerate_skip_path(...)`. On the verified-affected mechanism,
 mid-epoch resume shifts every post-resume epoch back one permutation
