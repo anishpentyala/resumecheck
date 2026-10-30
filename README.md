@@ -107,10 +107,12 @@ not an expected one. The HF adapter is verified against transformers
 tests pass there, so the #22077-class boundary defect does not reproduce
 on the HF Trainer path in this configuration.
 
-Accelerate adapter validation (2026-10-30, accelerate 1.15.0 +
-torchdata 0.11.0, CPU): mid-epoch resume parity PASSES on the documented
-stateful path. A checkpoint saved exactly at an epoch boundary does NOT
-resume correctly there: the completed epoch is fully replayed.
+Accelerate adapter validation (2026-10-30, CPU, torchdata 0.11.0):
+mid-epoch resume parity PASSES on the documented stateful path. A
+checkpoint saved exactly at an epoch boundary does NOT resume correctly:
+the completed epoch is fully replayed. Verified affected: accelerate
+1.15.0 (latest PyPI release) AND current master 1.16.0.dev0 @ 90b233c -
+the bug is not fixed upstream.
 
 Verified mechanism: `DataLoaderShard.__iter__` calls
 `set_epoch(self.iteration)` at the start of every iteration, so the
@@ -122,14 +124,14 @@ the completed epoch. The same counter explains the `skip_first_batches`
 path: the skip wrapper consumes the sampler without advancing the shard's
 counter, so every post-resume epoch is shifted back one permutation.
 
-Verified workarounds (both directions probed): on the stateful path, call
+Verified workarounds (both directions probed, on 1.15.0 and on master):
+on the stateful path, call
 `train_dataloader.set_epoch(next_epoch_index)` after `load_state` when
 resuming at an epoch boundary; on the `skip_first_batches` path, call
 `train_dataloader.set_epoch(epoch)` for each epoch after the resume
 epoch. The boundary case is encoded as a pinned executable spec
-(strict-xfail positive + negative control on
-accelerate==1.15.0/torchdata==0.11.0; normal must-pass assertion
-elsewhere). Not covered: torch-generator samplers, whose post-restore
+(strict-xfail positive + negative control on the verified-affected
+versions; normal must-pass assertion elsewhere). Not covered: torch-generator samplers, whose post-restore
 permutation divergence is known upstream as pytorch/data#1561.
 
 ## Examples
