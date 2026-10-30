@@ -71,6 +71,7 @@ def compare_trajectories(
             f"step count differs: {len(a)} vs {len(b)} (compared first {n})"
         )
 
+    one_sided: set = set()
     checked = {"loss": check_loss, "batch": check_batch, "grad": check_grad_norm}
     if not any(
         getattr(s, f) is not None
@@ -123,7 +124,8 @@ def compare_trajectories(
             ),
         ):
             if sa_v is None or sb_v is None:
-                if (sa_v is None) != (sb_v is None) and fname not in missing:
+                if (sa_v is None) != (sb_v is None) and fname not in one_sided:
+                    one_sided.add(fname)
                     missing.append(f"{fname} recorded in only one run")
                 continue
             if not _floats_close(sa_v, sb_v, rtol, atol):
@@ -168,4 +170,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-        )
+    )
