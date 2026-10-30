@@ -113,15 +113,15 @@ import importlib.metadata as _importlib_metadata
 from packaging.version import Version as _Version
 
 _LIGHTNING_V = _Version(_importlib_metadata.version("lightning"))
-_IS_RELEASE = not (_LIGHTNING_V.is_prerelease or _LIGHTNING_V.is_devrelease)
-# lightning#22077 was reproduced on the latest release (2.6.6) and on
-# unpatched master (2.7.0.dev0) as of 2026-10-30; the maintainer's fix
-# (Lightning-AI/pytorch-lightning#22080) is not in any release yet, so
-# every released version is treated as affected. Dev builds may carry the
-# patch, so bug PRESENCE is asserted only on released versions; when a
-# future release ships the fix, the reproduction test below trips its
-# "appears fixed" assertion and this grounding must be updated.
-_KNOWN_AFFECTED_RELEASE = _IS_RELEASE
+# Version grounding (2026-10-30, see issue #22077 "Versions"):
+#   - VERIFIED AFFECTED: lightning==2.6.6 (latest release at filing) and
+#     unpatched master 2.7.0.dev0 (6557204).
+#   - VERIFIED FIXED: master 2.7.0.dev0 with the #22080 patch applied.
+# Other versions are not claimed either way: the positive parity test
+# asserts compatibility normally there - a failure on an untested version
+# is a genuine finding, not an expected one. Widen this set only with a
+# tested version, never by assumption.
+_VERIFIED_AFFECTED = _LIGHTNING_V == _Version("2.6.6")
 
 _LIGHTNING_22077 = (
     "lightning#22077: epoch-boundary max_steps resume replays/drops batches "
@@ -144,28 +144,30 @@ def _epoch_boundary_report():
 
 
 @pytest.mark.xfail(
-    _KNOWN_AFFECTED_RELEASE,
+    _VERIFIED_AFFECTED,
     strict=True,
     raises=AssertionError,
     reason=_LIGHTNING_22077,
 )
 def test_epoch_boundary_resume_parity():
     """Positive check: epoch-boundary resume SHOULD reproduce the
-    uninterrupted run. Must pass on fixed upstream; strictly xfailed on
-    releases where #22077 is known-present so a surprise fix is loud
-    (XPASS(strict) fails), and a genuine pass is required everywhere else."""
+    uninterrupted run. Strict-xfail only on the verified-affected version
+    (2.6.6); everywhere else it asserts compatibility normally - a real
+    pass on verified-fixed upstream, a loud failure on any other broken
+    version."""
     report = _epoch_boundary_report()
     assert report.passed, report.summary
 
 
 @pytest.mark.skipif(
-    not _IS_RELEASE,
-    reason="bug-presence reproduction is version-grounded on released "
-    "lightning; dev builds may carry the #22080 patch",
+    not _VERIFIED_AFFECTED,
+    reason="bug-presence reproduction is pinned to the verified-affected "
+    "lightning==2.6.6; other versions are covered by the positive parity "
+    "test asserting compatibility normally",
 )
 def test_epoch_boundary_max_steps_resume_regression_lightning_22077():
-    # Negative control: resumecheck must FLAG the bug on released versions
-    # where it is known-present. With shuffle=False the duplicate IS the
+    # Negative control: resumecheck must FLAG the bug on the
+    # verified-affected version. With shuffle=False the duplicate IS the
     # same data as the expected batch, so the mismatch surfaces one step
     # later.
     report = _epoch_boundary_report()
