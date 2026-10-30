@@ -42,3 +42,24 @@ workers {1,2,4} x seeds {42,7} matrix with full nested state dumps):
   controls) on the existing dual-fingerprint workers gate; suites:
   42 passed + 6 xfailed (rcv), 42 passed + 1 skipped + 5 xfailed (plv),
   36 passed + 2 skipped + 5 xfailed (acc-master). Published as PR #16.
+
+CI added (2026-10-30): main flagged that a public tool whose promise is
+"verified against upstream versions" had no continuous verification.
+Design: floor leg (3.9, stdlib-only import - core never imports torch;
+pinned to ubuntu-24.04 because actions/python-versions has no 3.9 build
+for ubuntu-26.04), core legs (torch+numpy fixtures, py 3.11/3.13 - torch
+requires >=3.11), one adapter leg per pinned validated version set from
+README (lightning 2.6.6 / transformers 5.20.2+accelerate 1.15.0 /
+accelerate 1.15.0+torchdata 0.11.0, CPU torch 2.14.1). Adapter modules
+guard imports with pytest.importorskip, which would skip green in CI;
+tests/conftest.py adds an opt-in RESUMECHECK_REQUIRE_NO_SKIPS session
+hook that converts any skip into exit 1. Verified locally before
+publishing: pinned env 42 passed+6 xfailed exit 0; missing-lightning env
+with the guard exit 1 with a clear message (without it: exit 5, no tests
+collected). Strict xfails on verified-affected versions double as
+upstream-fix alarms on the pinned legs. Env-label correction (main):
+rcv = lightning 2.6.6 + accelerate 1.15.0 + torch 2.14.1+cpu; plv =
+lightning master 2.7.0.dev0 + accelerate 1.15.0; acc-master-venv =
+accelerate master 1.16.0.dev0@90b233c. (Earlier I wrote "rcv
+(pytorch-lightning 1.15.0)" - conflated accelerate's version onto
+pytorch-lightning; correct labels used from here.)

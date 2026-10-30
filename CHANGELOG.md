@@ -4,6 +4,14 @@
 
 ### Added
 
+- GitHub Actions CI: a 3.9 stdlib-only floor leg (the package core never
+  imports torch), torch-only core legs on 3.11/3.13, and one leg per
+  adapter pinned to the validated upstream versions below (Lightning
+  2.6.6; transformers 5.20.2 + accelerate 1.15.0; accelerate 1.15.0 +
+  torchdata 0.11.0; CPU torch 2.14.1). Adapter legs run with a
+  no-silent-skip guard (RESUMECHECK_REQUIRE_NO_SKIPS): a missing extra
+  fails the leg instead of skipping the adapter module green.
+
 - Characterized the workers>0 boundary and later-epoch mid-epoch
   resume behavior (follow-up to the num_workers axis): an epoch-boundary
   resume with num_workers>=1 matches only the first post-resume epoch,
