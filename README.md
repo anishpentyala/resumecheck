@@ -19,6 +19,12 @@ and the resume-bug track record of that ecosystem
 ([litData#775](https://github.com/Lightning-AI/litData/issues/775) and the
 lightning resume-issue cluster) shows how often practitioners hit them.
 
+NumPy arrays containing Python objects are rejected, including structured dtypes
+with object fields: their raw bytes hold object addresses rather than object
+content. Convert those batches to supported tensors, non-object arrays or native
+containers before recording. Numeric structured arrays and fixed-width strings
+remain supported.
+
 ## How it works
 
 1. Run your deterministic training to `max_steps`, recording a *trajectory*:
