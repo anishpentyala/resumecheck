@@ -16,9 +16,11 @@ def fingerprint_tensor(obj: Any) -> str:
     throughput - hashing large batches every step is expensive.
 
     The encoding is unambiguous: every part is length-prefixed and tagged
-    with its structural role, and tensor parts carry dtype and shape, so
-    distinct structures, dtypes, or shapes cannot collide on shared byte
-    content.
+    with its structural role; containers carry size and type, and tensor
+    parts carry dtype and shape, so
+    supported containers, dtypes, and shapes do not alias merely because
+    their payload bytes match. This is a diagnostic fingerprint, not a
+    collision-proof attestation or a serializer for arbitrary objects.
     """
     parts: List[bytes] = []
 
@@ -40,13 +42,13 @@ def fingerprint_tensor(obj: Any) -> str:
             except Exception:
                 pass
         if isinstance(x, dict):
-            emit(b"dict", b"" )
+            emit(b"dict", str(len(x)).encode())
             for k in sorted(x, key=str):
                 walk(k)
                 walk(x[k])
             return
         if isinstance(x, (list, tuple)):
-            emit(b"seq", b"")
+            emit(b"list" if isinstance(x, list) else b"tuple", str(len(x)).encode())
             for v in x:
                 walk(v)
             return
@@ -59,7 +61,7 @@ def fingerprint_tensor(obj: Any) -> str:
         emit(b"repr", repr(x).encode())
 
     walk(obj)
-    return hashlib.sha256(b"".join(parts)).hexdigest()[:16]
+    return "v2:" + hashlib.sha256(b"".join(parts)).hexdigest()[:16]
 
 
 @dataclass
