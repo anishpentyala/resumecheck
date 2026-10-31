@@ -56,8 +56,8 @@ def compare_trajectories(
     pre-crash and post-resume phases in training order.
 
     Fails closed: a step-count mismatch, fields recorded in only one run, or
-    nothing comparable at all means the runs were NOT verified, so the
-    report fails (the condition is listed in ``missing_fields``). Pass
+    a step with no shared enabled observable, or legacy batch fingerprints
+    means the runs were NOT verified, so the report fails (the condition is listed in ``missing_fields``). Pass
     ``allow_partial=True`` to explicitly scope the check to the common
     prefix: a step-count mismatch then demotes to a warning, while having
     nothing comparable or one-sided fields still fails.
@@ -72,13 +72,8 @@ def compare_trajectories(
         )
 
     one_sided: set = set()
-    checked = {"loss": check_loss, "batch": check_batch, "grad": check_grad_norm}
-    if not any(
-        getattr(s, f) is not None
-        for s in (a[:n] or [])
-        for f in ("loss", "batch_fingerprint", "grad_norm")
-    ):
-        missing.append("no comparable fields recorded")
+    if not any((check_loss, check_batch, check_grad_norm)):
+        missing.append("no checks enabled")
 
     for i in range(n):
         sa, sb = a[i], b[i]
@@ -96,7 +91,24 @@ def compare_trajectories(
                 missing_fields=missing,
                 summary=f"DIVERGED at record {i}: step indices misaligned",
             )
+        enabled_fields = (
+            ("loss", check_loss),
+            ("batch_fingerprint", check_batch),
+            ("grad_norm", check_grad_norm),
+        )
+        if not any(
+            enabled and getattr(sa, name) is not None and getattr(sb, name) is not None
+            for name, enabled in enabled_fields
+        ):
+            missing.append(f"no comparable enabled fields at step {sa.step}")
         if check_batch:
+            if any(fp is not None and not fp.startswith("v2:") for fp in (sa.batch_fingerprint, sb.batch_fingerprint)):
+                if "legacy_fingerprint" not in one_sided:
+                    one_sided.add("legacy_fingerprint")
+                    missing.append(
+                        "unversioned batch fingerprints cannot verify structure; "
+                        "record both runs with v2 fingerprints"
+                    )
             if (sa.batch_fingerprint is None) != (sb.batch_fingerprint is None):
                 if "batch" not in one_sided:
                     one_sided.add("batch")
@@ -153,6 +165,8 @@ def compare_trajectories(
                     summary=f"DIVERGED at step {sa.step}: {fname} {sa_v} vs {sb_v}",
                 )
 
+    if n == 0:
+        missing.append("no comparable fields recorded")
     if allow_partial:
         hard_fail = [m for m in missing if not m.startswith("step count differs")]
     else:
@@ -177,4 +191,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-                                 )
+    )
