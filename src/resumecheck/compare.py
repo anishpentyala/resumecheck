@@ -66,8 +66,12 @@ def compare_trajectories(
     """
     if not math.isfinite(rtol) or not math.isfinite(atol) or rtol < 0 or atol < 0:
         raise ValueError("rtol and atol must be finite and nonnegative")
-    a = sorted(uninterrupted.steps, key=lambda s: s.step)
-    b = sorted(resumed.steps, key=lambda s: s.step)
+    for label, trajectory in (("uninterrupted", uninterrupted), ("resumed", resumed)):
+        if any(right.step <= left.step for left, right in zip(trajectory.steps, trajectory.steps[1:])):
+            detail = f"{label} step indices must be strictly increasing in recorded order"
+            return CompareReport(passed=False, steps_compared=0, missing_fields=[detail], summary=f"FAIL: {detail}")
+    a = uninterrupted.steps
+    b = resumed.steps
     n = min(len(a), len(b))
     missing: List[str] = []
     if len(a) != len(b):
