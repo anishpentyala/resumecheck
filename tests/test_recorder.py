@@ -56,3 +56,11 @@ class TestFingerprintStructure:
         t1 = np.arange(6, dtype=np.float64).reshape(2, 3)
         t2 = np.arange(6, dtype=np.float64).reshape(2, 3)
         assert fingerprint_tensor(t1) == fingerprint_tensor(t2)
+
+
+def test_fingerprint_nested_container_boundaries():
+    assert fingerprint_tensor([[1], 2]) != fingerprint_tensor([[1, 2]])
+    assert fingerprint_tensor({"a": {}, "b": 1}) != fingerprint_tensor({"a": {"b": 1}})
+    assert fingerprint_tensor([[], 1]) != fingerprint_tensor([[1]])
+    assert fingerprint_tensor([1, 2]) != fingerprint_tensor((1, 2))
+    assert fingerprint_tensor([1, 2]).startswith("v2:")
