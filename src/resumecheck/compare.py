@@ -34,6 +34,8 @@ class CompareReport:
 def _floats_close(a: float, b: float, rtol: float, atol: float) -> bool:
     if math.isnan(a) or math.isnan(b):
         return math.isnan(a) and math.isnan(b)
+    if math.isinf(a) or math.isinf(b):
+        return a == b
     return abs(a - b) <= atol + rtol * abs(b)
 
 
@@ -62,6 +64,8 @@ def compare_trajectories(
     prefix: a step-count mismatch then demotes to a warning, while having
     nothing comparable or one-sided fields still fails.
     """
+    if not math.isfinite(rtol) or not math.isfinite(atol) or rtol < 0 or atol < 0:
+        raise ValueError("rtol and atol must be finite and nonnegative")
     a = sorted(uninterrupted.steps, key=lambda s: s.step)
     b = sorted(resumed.steps, key=lambda s: s.step)
     n = min(len(a), len(b))
