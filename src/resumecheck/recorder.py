@@ -29,8 +29,22 @@ def fingerprint_tensor(obj: Any) -> str:
 
     def walk(x: Any) -> None:
         if hasattr(x, "detach"):  # torch.Tensor
-            arr = x.detach().cpu().contiguous().numpy()
-            emit(b"tensor", f"{arr.dtype}|{arr.shape}|".encode() + arr.tobytes())
+            tensor = x.detach().cpu().contiguous()
+            try:
+                arr = tensor.numpy()
+            except TypeError:
+                # NumPy cannot represent bfloat16/float8. Keep their exact
+                # bits, dtype and logical shape, without a lossy float cast.
+                # A clone owns compact storage: views may otherwise include
+                # unrelated bytes before/after the logical tensor.
+                dtype = str(tensor.dtype)
+                if dtype != "torch.bfloat16" and not dtype.startswith("torch.float8_"):
+                    raise
+                payload = bytes(tensor.clone().untyped_storage())
+                emit(b"tensor-raw", f"{dtype}|{tuple(tensor.shape)}|".encode() + payload)
+            else:
+                # Preserve existing fingerprints for NumPy-supported dtypes.
+                emit(b"tensor", f"{arr.dtype}|{arr.shape}|".encode() + arr.tobytes())
             return
         if hasattr(x, "tobytes") and not isinstance(x, (bytes, str)):
             try:
