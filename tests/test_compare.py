@@ -201,3 +201,26 @@ def test_invalid_tolerances_are_rejected():
         for value in [-1, math.inf, -math.inf, math.nan]:
             with pytest.raises(ValueError, match="finite and nonnegative"):
                 compare_trajectories(traj("a", [1.0]), traj("b", [2.0]), **{name: value})
+
+
+def test_reordered_records_are_not_silently_sorted_into_parity():
+    a = traj("a", [1.0, 2.0], steps=[1, 2])
+    b = traj("b", [2.0, 1.0], fps=["fp0001", "fp0000"], steps=[2, 1])
+    r = compare_trajectories(a, b)
+    assert not r.passed
+    assert "strictly increasing" in r.summary
+
+
+def test_duplicate_step_ids_fail_even_if_both_runs_match():
+    for partial in [False, True]:
+        a = traj("a", [1.0, 1.0], steps=[1, 1])
+        b = traj("b", [1.0, 1.0], steps=[1, 1])
+        r = compare_trajectories(a, b, allow_partial=partial)
+        assert not r.passed
+        assert "strictly increasing" in r.summary
+
+
+def test_monotonic_nonconsecutive_steps_remain_supported():
+    a = traj("a", [1.0, 2.0], steps=[10, 20])
+    b = traj("b", [1.0, 2.0], steps=[10, 20])
+    assert compare_trajectories(a, b).passed

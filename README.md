@@ -86,7 +86,9 @@ Comparisons with batch checking enabled now fail closed on those old records.
 Record both runs again to check batches. `--no-batch` explicitly limits the CLI
 comparison to the other recorded observables; it cannot verify input data.
 A comparison also fails when no checks are enabled or any compared step has
-no shared enabled observable. Partial-prefix mode does not waive these checks.
+no shared enabled observable. Partial-prefix mode does not waive these checks. Step IDs must be strictly
+increasing in recorded order; duplicates and reordered records fail instead
+of being sorted into apparent parity. Nonconsecutive increasing IDs are allowed.
 
 ## What a PASS means — and what it does not
 
