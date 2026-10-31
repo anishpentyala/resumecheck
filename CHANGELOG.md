@@ -1,5 +1,8 @@
 ## Unreleased safety correction
 
+- Reject duplicate or reordered step IDs rather than sorting records into
+  apparent parity; increasing nonconsecutive IDs remain supported.
+
 - Encode container sizes and list/tuple type in versioned batch fingerprints.
   Old fingerprints could conflate nested batch structures; regenerate both
   trajectories for batch checking. Unversioned fingerprints fail closed.
