@@ -1,5 +1,10 @@
 ## Unreleased safety correction
 
+- Record Lightning gradient accumulation as optimizer windows, fingerprinting
+  every microbatch in order instead of producing duplicate optimizer-step IDs.
+  Mean callback loss and final-batch gradient norm are window observables.
+  Reject incomplete windows and unsupported optimizer-step jumps.
+
 - Reject duplicate or reordered step IDs rather than sorting records into
   apparent parity; increasing nonconsecutive IDs remain supported.
 
