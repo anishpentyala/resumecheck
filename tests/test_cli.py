@@ -32,3 +32,15 @@ def test_cli_requires_subcommand():
 
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_cli_nested_batch_structure_diverges(tmp_path, capsys):
+    paths = []
+    for name, batch in [("a", [[1], 2]), ("b", [[1, 2]])]:
+        rec = TrajectoryRecorder(name)
+        rec.record(1, loss=1.0, batch=batch)
+        path = tmp_path / f"{name}.json"
+        rec.trajectory.save(path)
+        paths.append(str(path))
+    assert main(["compare", *paths]) == 1
+    assert "field=batch" in capsys.readouterr().out
