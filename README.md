@@ -77,6 +77,20 @@ real crash-and-resume. Resuming with a different total than the original run
 changes the schedule by design — that is a different experiment, not a resume
 bug.
 
+## Lightning gradient accumulation
+
+The Lightning adapter records one optimizer-step window when
+`accumulate_grad_batches` is greater than one. It fingerprints every
+microbatch in order, compares the mean of callback-provided microbatch losses,
+and samples gradient norm at the final batch of the window. A PASS covers
+those window-level observables, not every individual microbatch loss.
+Intermediate microbatches are not dropped. Incomplete windows and unsupported
+multi-step jumps raise instead of returning a misleading comparison.
+
+Earlier builds recorded repeated optimizer-step IDs for accumulated batches.
+The strict step-order check rejected those records even when training resumed
+correctly. Regenerate affected trajectories with this correction.
+
 ## Fingerprint compatibility
 
 New batch fingerprints use a `v2:` prefix and encode container sizes and

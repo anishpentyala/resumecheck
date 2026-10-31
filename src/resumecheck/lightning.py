@@ -45,6 +45,16 @@ def _make_callback_cls():
         def __init__(self, recorder: TrajectoryRecorder) -> None:
             self.recorder = recorder
             self._pending_batch_fp: Optional[str] = None
+            self._window_fingerprints = []
+            self._window_losses = []
+            self._last_optimizer_step = 0
+
+        def on_train_start(self, trainer, pl_module):
+            self._last_optimizer_step = int(trainer.global_step)
+
+        def on_train_end(self, trainer, pl_module):
+            if self._window_fingerprints:
+                raise ValueError("Lightning recorder stopped with an incomplete optimizer window")
 
         def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
             from .recorder import fingerprint_tensor
@@ -56,6 +66,25 @@ def _make_callback_cls():
             if isinstance(outputs, dict):
                 l = outputs.get("loss")
                 loss = float(l.detach().cpu()) if l is not None else None
+            self._window_fingerprints.append(self._pending_batch_fp)
+            self._window_losses.append(loss)
+            optimizer_step = int(trainer.global_step)
+            if optimizer_step == self._last_optimizer_step:
+                return
+            if optimizer_step != self._last_optimizer_step + 1:
+                raise ValueError("Lightning recorder requires one optimizer step per accumulation window")
+            from .recorder import fingerprint_tensor
+
+            # Record one optimizer window, including every consumed microbatch.
+            # Preserve the single-batch fingerprint for the default configuration.
+            window_fingerprint = (
+                self._window_fingerprints[0] if len(self._window_fingerprints) == 1
+                else fingerprint_tensor(self._window_fingerprints)
+            )
+            window_loss = (
+                sum(self._window_losses) / len(self._window_losses)
+                if all(value is not None for value in self._window_losses) else None
+            )
             grad_norm = None
             total = 0.0
             seen = False
@@ -66,15 +95,15 @@ def _make_callback_cls():
             if seen:
                 grad_norm = math.sqrt(total)
             self.recorder.record(
-                step=int(trainer.global_step),
-                loss=loss,
-                batch=batch,  # fingerprint already taken; recompute avoided below
+                step=optimizer_step,
+                loss=window_loss,
+                batch=None,  # use the fingerprints captured before training_step
                 grad_norm=grad_norm,
             )
-            # use the cached fingerprint instead of the recomputed one
-            self.recorder.trajectory.steps[-1].batch_fingerprint = (
-                self._pending_batch_fp
-            )
+            self.recorder.trajectory.steps[-1].batch_fingerprint = window_fingerprint
+            self._last_optimizer_step = optimizer_step
+            self._window_fingerprints = []
+            self._window_losses = []
 
     return RecorderCallback
 
@@ -94,6 +123,13 @@ def check_lightning(
 
     ``module_factory``/``datamodule_factory`` must return fresh, identically
     seeded instances on every call. Returns a CompareReport.
+
+    With gradient accumulation, each record is one optimizer window: batch
+    fingerprints cover every microbatch in order, loss is the mean of the
+    callback-provided microbatch losses, and gradient norm is sampled at the
+    window's final batch. This compares window-level loss, not each individual
+    microbatch loss. Unsupported optimizer-step jumps and incomplete windows
+    raise rather than silently dropping data.
     """
     _require_lightning()
     import lightning.pytorch as pl
