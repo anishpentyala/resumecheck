@@ -47,8 +47,15 @@ def fingerprint_tensor(obj: Any) -> str:
                 emit(b"tensor", f"{arr.dtype}|{arr.shape}|".encode() + arr.tobytes())
             return
         if hasattr(x, "tobytes") and not isinstance(x, (bytes, str)):
+            dtype = getattr(x, "dtype", None)
+            if getattr(dtype, "hasobject", False):
+                # Object-array bytes are Python object addresses, not content.
+                # The referent can change without changing a single byte here.
+                raise TypeError(
+                    "object-containing array dtypes cannot be fingerprinted by content; "
+                    "convert the batch to supported tensors, arrays or containers"
+                )
             try:
-                dtype = getattr(x, "dtype", None)
                 shape = getattr(x, "shape", None)
                 header = f"{dtype}|{shape}|".encode()
                 emit(b"array", header + x.tobytes())

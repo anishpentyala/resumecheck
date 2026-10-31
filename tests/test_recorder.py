@@ -111,3 +111,46 @@ class TestLowPrecisionFingerprint:
             loaded = Trajectory.load(path)
             assert compare_trajectories(a.trajectory, loaded).passed
             assert not compare_trajectories(loaded, b.trajectory).passed
+
+
+class TestObjectArrayFingerprint:
+    def test_mutable_object_array_is_rejected(self):
+        import pytest
+        payload = {"token": 1}
+        array = np.empty(1, dtype=object)
+        array[0] = payload
+        with pytest.raises(TypeError, match="object-containing array"):
+            fingerprint_tensor(array)
+        payload["token"] = 2
+        with pytest.raises(TypeError, match="object-containing array"):
+            fingerprint_tensor(array)
+
+    def test_nested_structured_object_field_is_rejected(self):
+        import pytest
+        array = np.zeros(2, dtype=[("nested", [("value", object)])])
+        with pytest.raises(TypeError, match="object-containing array"):
+            fingerprint_tensor({"batch": array})
+
+    def test_zero_dimensional_and_empty_object_arrays_are_rejected(self):
+        import pytest
+        for array in (np.array({"token": 1}, dtype=object), np.empty(0, dtype=object)):
+            with pytest.raises(TypeError, match="object-containing array"):
+                fingerprint_tensor(array)
+
+    def test_recorder_does_not_append_unverified_object_batch(self):
+        import pytest
+        recorder = TrajectoryRecorder()
+        with pytest.raises(TypeError, match="object-containing array"):
+            recorder.record(0, loss=1., batch=np.array(["a"], dtype=object))
+        assert recorder.trajectory.steps == []
+
+    def test_numeric_structured_arrays_remain_supported(self):
+        array = np.array([(1, 2.)], dtype=[("token", "i4"), ("value", "f4")])
+        assert fingerprint_tensor(array) == fingerprint_tensor(array.copy())
+        changed = array.copy()
+        changed["token"] = 2
+        assert fingerprint_tensor(array) != fingerprint_tensor(changed)
+
+    def test_strings_and_nested_native_containers_remain_supported(self):
+        assert fingerprint_tensor(np.array(["a", "b"])) == fingerprint_tensor(np.array(["a", "b"]))
+        assert fingerprint_tensor([{"token": 1}]) != fingerprint_tensor([{"token": 2}])
