@@ -1,5 +1,9 @@
 ## Unreleased safety correction
 
+- Fingerprint dense bfloat16 and float8 batch tensors without requiring a
+  NumPy dtype or casting away their exact bits. Preserve existing fingerprints
+  for NumPy-supported tensor dtypes.
+
 - Record Lightning gradient accumulation as optimizer windows, fingerprinting
   every microbatch in order instead of producing duplicate optimizer-step IDs.
   Mean callback loss and final-batch gradient norm are window observables.
