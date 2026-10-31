@@ -64,3 +64,50 @@ def test_fingerprint_nested_container_boundaries():
     assert fingerprint_tensor([[], 1]) != fingerprint_tensor([[1]])
     assert fingerprint_tensor([1, 2]) != fingerprint_tensor((1, 2))
     assert fingerprint_tensor([1, 2]).startswith("v2:")
+
+
+class TestLowPrecisionFingerprint:
+    def test_bfloat16_exact_bits_and_shape(self):
+        t = torch.tensor([1., 2.], dtype=torch.bfloat16)
+        assert fingerprint_tensor(t) == fingerprint_tensor(t.clone())
+        assert fingerprint_tensor(t) != fingerprint_tensor(torch.tensor([1., 3.], dtype=t.dtype))
+        assert fingerprint_tensor(t) != fingerprint_tensor(t.reshape(1, 2))
+        assert fingerprint_tensor(t) != fingerprint_tensor(t.float())
+
+    def test_bfloat16_views_exclude_unrelated_storage(self):
+        t = torch.tensor([99., 1., 2., 88.], dtype=torch.bfloat16)
+        assert fingerprint_tensor(t[1:3]) == fingerprint_tensor(torch.tensor([1., 2.], dtype=t.dtype))
+        t[0], t[3] = 5., 7.
+        assert fingerprint_tensor(t[1:3]) == fingerprint_tensor(torch.tensor([1., 2.], dtype=t.dtype))
+
+    def test_noncontiguous_scalar_and_empty_bfloat16(self):
+        t = torch.arange(6, dtype=torch.bfloat16).reshape(2, 3).T
+        assert fingerprint_tensor(t) == fingerprint_tensor(t.contiguous())
+        assert fingerprint_tensor(torch.tensor(1., dtype=t.dtype)) != fingerprint_tensor(torch.ones(1, dtype=t.dtype))
+        assert fingerprint_tensor(torch.empty(0, dtype=t.dtype)) != fingerprint_tensor(torch.empty(0, 1, dtype=t.dtype))
+
+    def test_bfloat16_preserves_signed_zero_bits(self):
+        assert fingerprint_tensor(torch.tensor([0.], dtype=torch.bfloat16)) != fingerprint_tensor(torch.tensor([-0.], dtype=torch.bfloat16))
+
+    def test_float8_exact_bits_and_dtype(self):
+        a = torch.tensor([1., 2.], dtype=torch.float8_e4m3fn)
+        b = torch.tensor([1., 2.], dtype=torch.float8_e5m2)
+        assert fingerprint_tensor(a) == fingerprint_tensor(a.clone())
+        assert fingerprint_tensor(a) != fingerprint_tensor(b)
+        assert fingerprint_tensor(a) != fingerprint_tensor(torch.tensor([1., 3.], dtype=a.dtype))
+
+    def test_float32_fingerprint_is_unchanged(self):
+        assert fingerprint_tensor(torch.tensor([1., 2.], dtype=torch.float32)) == 'v2:f97f2a809e253731'
+
+    def test_low_precision_trajectory_roundtrip_and_divergence(self, tmp_path):
+        from resumecheck.compare import compare_trajectories
+        for dtype in (torch.bfloat16, torch.float8_e4m3fn, torch.float8_e5m2,
+                      torch.float8_e4m3fnuz, torch.float8_e5m2fnuz):
+            a, b = TrajectoryRecorder('a'), TrajectoryRecorder('b')
+            a.record(1, loss=1., batch={'x': torch.tensor([1., 2.], dtype=dtype)})
+            b.record(1, loss=1., batch={'x': torch.tensor([1., 3.], dtype=dtype)})
+            path = tmp_path / 'trajectory.json'
+            a.trajectory.save(path)
+            loaded = Trajectory.load(path)
+            assert compare_trajectories(a.trajectory, loaded).passed
+            assert not compare_trajectories(loaded, b.trajectory).passed

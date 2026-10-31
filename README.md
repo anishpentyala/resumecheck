@@ -91,6 +91,15 @@ Earlier builds recorded repeated optimizer-step IDs for accumulated batches.
 The strict step-order check rejected those records even when training resumed
 correctly. Regenerate affected trajectories with this correction.
 
+## Low-precision batch tensors
+
+Batch fingerprints support CPU `bfloat16` and float8 tensors even when NumPy
+cannot represent their dtype. The fallback hashes exact storage bits plus
+dtype and logical shape, with a compact clone so sliced views do not include
+unrelated storage. It does not cast values to float32. Existing fingerprints
+for NumPy-supported tensor dtypes are unchanged. Sparse, quantized and other
+unsupported tensor representations are not made supported by this fallback.
+
 ## Fingerprint compatibility
 
 New batch fingerprints use a `v2:` prefix and encode container sizes and
