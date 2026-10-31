@@ -1,3 +1,13 @@
+## Unreleased safety correction
+
+- Encode container sizes and list/tuple type in versioned batch fingerprints.
+  Old fingerprints could conflate nested batch structures; regenerate both
+  trajectories for batch checking. Unversioned fingerprints fail closed.
+- Compare infinities explicitly so a finite value cannot match infinity through
+  an infinite relative-tolerance bound. Equal signed infinities still match.
+- Reject comparisons with no enabled checks or an unobserved compared step.
+- Cover nested batch differences through the JSON/CLI path.
+
 # Changelog
 
 ## Unreleased

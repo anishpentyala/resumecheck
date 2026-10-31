@@ -10,7 +10,7 @@ def traj(name, losses, fps=None, steps=None):
             StepRecord(
                 step=s,
                 loss=l,
-                batch_fingerprint=(fps[i] if fps else f"fp{i:04d}"),
+                batch_fingerprint=("v2:" + fps[i] if fps else f"v2:fp{i:04d}"),
             )
             for i, (s, l) in enumerate(zip(steps, losses))
         ],
@@ -142,3 +142,62 @@ def test_both_sides_batch_present_still_detects_divergence():
     assert not r.passed
     assert r.first_divergence is not None
     assert r.first_divergence.field == "batch"
+
+
+def test_no_enabled_checks_fails_closed():
+    r = compare_trajectories(traj("a", [1.0]), traj("b", [2.0]),
+                             check_loss=False, check_batch=False, check_grad_norm=False)
+    assert not r.passed
+    assert "no checks enabled" in r.summary
+
+
+def test_only_disabled_fields_do_not_count_as_evidence():
+    a = Trajectory("a", [StepRecord(1, loss=1.0)])
+    b = Trajectory("b", [StepRecord(1, loss=1.0)])
+    r = compare_trajectories(a, b, check_loss=False)
+    assert not r.passed
+    assert "no comparable enabled fields" in r.summary
+
+
+def test_unobserved_step_fails_even_if_another_step_matches():
+    a = Trajectory("a", [StepRecord(1, loss=1.0), StepRecord(2)])
+    b = Trajectory("b", [StepRecord(1, loss=1.0), StepRecord(2)])
+    for partial in [False, True]:
+        r = compare_trajectories(a, b, allow_partial=partial)
+        assert not r.passed
+        assert "step 2" in r.summary
+
+
+def test_mixed_enabled_observables_are_sufficient_per_step():
+    a = Trajectory("a", [StepRecord(1, loss=1.0), StepRecord(2, batch_fingerprint="v2:abc")])
+    b = Trajectory("b", [StepRecord(1, loss=1.0), StepRecord(2, batch_fingerprint="v2:abc")])
+    assert compare_trajectories(a, b).passed
+
+
+def test_legacy_collision_does_not_silently_pass():
+    a = Trajectory("old-a", [StepRecord(1, loss=1.0, batch_fingerprint="3e2771e9460d3aa7")])
+    b = Trajectory("old-b", [StepRecord(1, loss=1.0, batch_fingerprint="3e2771e9460d3aa7")])
+    r = compare_trajectories(a, b)
+    assert not r.passed
+    assert "unversioned batch fingerprints" in r.summary
+    # Explicitly scoping away batch checks can still verify recorded losses.
+    assert compare_trajectories(a, b, check_batch=False).passed
+
+
+def test_infinite_values_do_not_hide_finite_divergence():
+    import math
+
+    for a, b in [(1.0, math.inf), (math.inf, 1.0), (-math.inf, math.inf)]:
+        assert not compare_trajectories(traj("a", [a]), traj("b", [b])).passed
+    for value in [math.inf, -math.inf]:
+        assert compare_trajectories(traj("a", [value]), traj("b", [value])).passed
+
+
+def test_invalid_tolerances_are_rejected():
+    import math
+    import pytest
+
+    for name in ["rtol", "atol"]:
+        for value in [-1, math.inf, -math.inf, math.nan]:
+            with pytest.raises(ValueError, match="finite and nonnegative"):
+                compare_trajectories(traj("a", [1.0]), traj("b", [2.0]), **{name: value})

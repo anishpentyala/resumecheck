@@ -77,6 +77,17 @@ real crash-and-resume. Resuming with a different total than the original run
 changes the schedule by design — that is a different experiment, not a resume
 bug.
 
+## Fingerprint compatibility
+
+New batch fingerprints use a `v2:` prefix and encode container sizes and
+list/tuple type. Older unversioned fingerprints omitted container boundaries:
+for example, `[[1], 2]` and `[[1, 2]]` could share the same fingerprint.
+Comparisons with batch checking enabled now fail closed on those old records.
+Record both runs again to check batches. `--no-batch` explicitly limits the CLI
+comparison to the other recorded observables; it cannot verify input data.
+A comparison also fails when no checks are enabled or any compared step has
+no shared enabled observable. Partial-prefix mode does not waive these checks.
+
 ## What a PASS means — and what it does not
 
 - Parity covers what is recorded: losses, batch content fingerprints, gradient
