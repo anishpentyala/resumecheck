@@ -182,3 +182,22 @@ def test_legacy_collision_does_not_silently_pass():
     assert "unversioned batch fingerprints" in r.summary
     # Explicitly scoping away batch checks can still verify recorded losses.
     assert compare_trajectories(a, b, check_batch=False).passed
+
+
+def test_infinite_values_do_not_hide_finite_divergence():
+    import math
+
+    for a, b in [(1.0, math.inf), (math.inf, 1.0), (-math.inf, math.inf)]:
+        assert not compare_trajectories(traj("a", [a]), traj("b", [b])).passed
+    for value in [math.inf, -math.inf]:
+        assert compare_trajectories(traj("a", [value]), traj("b", [value])).passed
+
+
+def test_invalid_tolerances_are_rejected():
+    import math
+    import pytest
+
+    for name in ["rtol", "atol"]:
+        for value in [-1, math.inf, -math.inf, math.nan]:
+            with pytest.raises(ValueError, match="finite and nonnegative"):
+                compare_trajectories(traj("a", [1.0]), traj("b", [2.0]), **{name: value})
