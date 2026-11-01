@@ -57,6 +57,16 @@ def fingerprint_tensor(obj: Any) -> str:
                     "the data, mask and any relevant fill value"
                 )
             dtype = getattr(x, "dtype", None)
+            shape = getattr(x, "shape", None)
+            if dtype is None or shape is None:
+                # array.array and memoryview expose bytes, but their element
+                # type/shape live in different attributes. Never silently
+                # hash these as None metadata and verify unequal inputs.
+                raise TypeError(
+                    f"unsupported batch value type {type(x).__name__}; "
+                    "raw-byte arrays require dtype and shape metadata; "
+                    "convert explicitly to a supported array or container"
+                )
             if getattr(dtype, "hasobject", False):
                 # Object-array bytes are Python object addresses, not content.
                 # The referent can change without changing a single byte here.
@@ -65,7 +75,6 @@ def fingerprint_tensor(obj: Any) -> str:
                     "convert the batch to supported tensors, arrays or containers"
                 )
             try:
-                shape = getattr(x, "shape", None)
                 header = f"{dtype}|{shape}|".encode()
                 emit(b"array", header + x.tobytes())
                 return
