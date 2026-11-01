@@ -1,5 +1,8 @@
 ## Unreleased safety correction
 
+- Both Accelerate adapter paths now fingerprint batches before forward,
+  preserving consumed input evidence when models mutate input tensors.
+
 - HF batch fingerprints now use the snapshot taken before model.forward,
   so legal in-place input changes cannot hide different consumed batches.
 

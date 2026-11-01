@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from .compare import CompareReport, compare_trajectories
-from .recorder import Trajectory, TrajectoryRecorder
+from .recorder import Trajectory, TrajectoryRecorder, fingerprint_tensor
 
 
 def _require_accelerate():
@@ -142,13 +142,15 @@ def check_accelerate(
         done = False
         while not done:
             for batch in dl:
+                batch_fp = fingerprint_tensor(batch)
                 out = model(**batch)
                 loss = _loss_of(out)
                 accelerator.backward(loss)
                 optimizer.step()
                 optimizer.zero_grad()
                 step += 1
-                rec.record(step=step, loss=float(loss.detach().cpu()), batch=batch)
+                rec.record(step=step, loss=float(loss.detach().cpu()))
+                rec.trajectory.steps[-1].batch_fingerprint = batch_fp
                 if stop_and_save_at is not None and step >= stop_and_save_at:
                     accelerator.save_state(save_dir)
                     done = True
@@ -291,13 +293,15 @@ def check_accelerate_skip_path(
                 active = dl
             first_epoch = False
             for batch in active:
+                batch_fp = fingerprint_tensor(batch)
                 out = model(**batch)
                 loss = _loss_of(out)
                 accelerator.backward(loss)
                 optimizer.step()
                 optimizer.zero_grad()
                 step += 1
-                rec.record(step=step, loss=float(loss.detach().cpu()), batch=batch)
+                rec.record(step=step, loss=float(loss.detach().cpu()))
+                rec.trajectory.steps[-1].batch_fingerprint = batch_fp
                 if stop_and_save_at is not None and step >= stop_and_save_at:
                     accelerator.save_state(save_dir)
                     done = True
