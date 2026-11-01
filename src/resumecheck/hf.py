@@ -49,9 +49,9 @@ def _make_trainer_cls(recorder: TrajectoryRecorder):
             recorder.record(
                 step=self._rc_step,
                 loss=float(loss.detach().cpu()),
-                batch=inputs,
+                batch=None,  # preserve the snapshot taken before model.forward
             )
-            self._pending_fp = fp
+            recorder.trajectory.steps[-1].batch_fingerprint = fp
             return (loss, outputs) if return_outputs else loss
 
         _rc_step = 0
