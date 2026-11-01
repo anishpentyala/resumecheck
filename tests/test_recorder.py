@@ -205,3 +205,46 @@ class TestOpaqueBatchFingerprint:
         first = {"tokens": [1, 2], "mask": (True, False), "score": 1.5, "label": "a"}
         second = {"tokens": [1, 3], "mask": (True, False), "score": 1.5, "label": "a"}
         assert fingerprint_tensor(first) != fingerprint_tensor(second)
+
+
+class TestMaskedArrayRejection:
+    def test_masked_array_collides_with_plain_filled_bytes(self):
+        import pytest
+        masked = np.ma.array([1., 2.], mask=[False, True])
+        plain = masked.filled()
+        assert masked.tobytes() == plain.tobytes()
+        assert fingerprint_tensor(plain).startswith("v2:")
+        with pytest.raises(TypeError, match="masked arrays"):
+            fingerprint_tensor(masked)
+
+    def test_hidden_payload_is_not_erased(self):
+        import pytest
+        for hidden in [2., 777.]:
+            masked = np.ma.array([1., hidden], mask=[False, True])
+            with pytest.raises(TypeError, match="masked arrays"):
+                fingerprint_tensor(masked)
+
+    def test_all_mask_forms_fail_closed(self):
+        import pytest
+        for value in [np.ma.array([1, 2]), np.ma.array([], mask=[]),
+                      np.ma.array(3, mask=True), np.ma.masked,
+                      np.ma.array([(1, 2.)], dtype=[("a", "i8"), ("b", "f8")],
+                                  mask=[(False, True)])]:
+            with pytest.raises(TypeError, match="masked arrays"):
+                fingerprint_tensor(value)
+
+    def test_nested_masked_value_is_not_accepted(self):
+        import pytest
+        with pytest.raises(TypeError, match="masked arrays"):
+            fingerprint_tensor({"x": [np.ma.array([1], mask=[True])]})
+
+    def test_explicit_mask_container_preserves_semantics(self):
+        masked = np.ma.array([1., 2.], mask=[False, True])
+        encoded = {"data": masked.data, "mask": np.ma.getmaskarray(masked),
+                   "fill_value": float(masked.fill_value)}
+        changed = dict(encoded, mask=np.array([False, False]))
+        assert fingerprint_tensor(encoded) != fingerprint_tensor(changed)
+        changed = dict(encoded, data=np.array([1., 777.]))
+        assert fingerprint_tensor(encoded) != fingerprint_tensor(changed)
+        changed = dict(encoded, fill_value=0.)
+        assert fingerprint_tensor(encoded) != fingerprint_tensor(changed)
