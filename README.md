@@ -19,6 +19,11 @@ and the resume-bug track record of that ecosystem
 ([litData#775](https://github.com/Lightning-AI/litData/issues/775) and the
 lightning resume-issue cluster) shows how often practitioners hit them.
 
+Raw-byte providers without both `dtype` and `shape` metadata (including
+`array.array` and `memoryview`) are rejected rather than silently discarding
+element types or shape. Convert them explicitly to supported arrays or native
+containers before recording.
+
 NumPy masked arrays are rejected because their raw-byte representation discards
 masks and substitutes fill values, which can hide a change in batch content.
 For explicit comparison, convert them to a native container holding the data,
