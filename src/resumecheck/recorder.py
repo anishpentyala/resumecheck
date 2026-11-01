@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import operator
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -175,6 +176,12 @@ class TrajectoryRecorder:
         grad_norm: Optional[float] = None,
         **extras: float,
     ) -> None:
+        if isinstance(step, bool):
+            raise TypeError("step must be an integer, not bool")
+        try:
+            step = operator.index(step)
+        except TypeError as error:
+            raise TypeError("step must be an integer without coercion or truncation") from error
         fp = fingerprint_tensor(batch) if batch is not None else None
         self.trajectory.steps.append(
             StepRecord(
