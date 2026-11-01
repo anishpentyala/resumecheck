@@ -86,6 +86,15 @@ real crash-and-resume. Resuming with a different total than the original run
 changes the schedule by design — that is a different experiment, not a resume
 bug.
 
+## Lightning phase completeness
+
+The Lightning adapter requires every phase to record its exact requested
+optimizer-step range: uninterrupted `1..max_steps`, pre-crash `1..resume_at`,
+and post-resume `resume_at+1..max_steps`. If an epoch limit, `min_steps`,
+stopping condition or incomplete recording prevents this, it raises `ValueError`.
+Equal shorter trajectories do not verify the requested checkpoint-and-resume
+experiment. Choose training limits and enough data to let all three phases run.
+
 ## Lightning gradient accumulation
 
 The Lightning adapter records one optimizer-step window when

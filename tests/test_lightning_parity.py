@@ -196,3 +196,69 @@ def test_simulated_buggy_resume_diverges():
     assert not report.passed
     assert report.first_divergence.step == 2
     assert report.first_divergence.field == "batch"
+
+
+@pytest.mark.parametrize("resume_at", [2, 4])
+def test_epoch_limit_cannot_verify_a_truncated_run(resume_at):
+    # Four batches at max_epochs=1 cannot verify a requested six-step run.
+    # At resume_at=4 the old implementation returned PASS for four steps,
+    # even though no post-resume optimizer step ran at all.
+    with pytest.raises(ValueError, match="uninterrupted phase.*1\\.\\.6"):
+        check_lightning(TinyModel, TinyDM, max_steps=6, resume_at=resume_at,
+                        trainer_kwargs={"max_epochs": 1})
+
+
+def test_min_steps_cannot_override_requested_crash_boundary():
+    # Lightning honors min_steps before should_stop; this used to let the
+    # pre-crash phase consume the full run and certify an empty resume phase.
+    with pytest.raises(ValueError, match="pre-crash phase.*1\\.\\.3"):
+        check_lightning(TinyModel, StatefulDM, max_steps=6, resume_at=3,
+                        trainer_kwargs={"min_steps": 6})
+
+
+@pytest.mark.parametrize("phase,first,last,observed", [
+    ("uninterrupted", 1, 4, [1, 2]),
+    ("pre-crash", 1, 2, [1, 2, 3]),
+    ("post-resume", 3, 4, []),
+    ("post-resume", 3, 4, [2, 3]),
+    ("post-resume", 3, 4, [3, 5]),
+])
+def test_phase_step_validation_rejects_incomplete_or_misaligned_ranges(phase, first, last, observed):
+    from resumecheck.lightning import _require_phase_steps
+    from resumecheck.recorder import StepRecord, Trajectory
+    with pytest.raises(ValueError, match=phase):
+        _require_phase_steps(Trajectory("test", [StepRecord(step=i) for i in observed]), first, last, phase)
+
+
+@pytest.mark.parametrize("first,last", [(1, 6), (1, 3), (4, 6)])
+def test_phase_step_validation_accepts_exact_ranges(first, last):
+    from resumecheck.lightning import _require_phase_steps
+    from resumecheck.recorder import StepRecord, Trajectory
+    _require_phase_steps(Trajectory("test", [StepRecord(step=i) for i in range(first, last + 1)]),
+                         first, last, "control")
+
+
+@pytest.mark.parametrize("drop_all", [False, True])
+def test_post_resume_phase_cannot_be_empty_or_truncated(monkeypatch, drop_all):
+    import resumecheck.lightning as adapter
+    BaseRecorder = adapter._make_callback_cls()
+
+    class IncompleteRecorder(BaseRecorder):
+        def on_train_end(self, trainer, pl_module):
+            super().on_train_end(trainer, pl_module)
+            if self.recorder.trajectory.name == "resumed":
+                if drop_all:
+                    self.recorder.trajectory.steps.clear()
+                else:
+                    self.recorder.trajectory.steps.pop()
+
+    monkeypatch.setattr(adapter, "_make_callback_cls", lambda: IncompleteRecorder)
+    with pytest.raises(ValueError, match="post-resume phase.*4\\.\\.6"):
+        check_lightning(TinyModel, StatefulDM, max_steps=6, resume_at=3)
+
+
+def test_sufficient_epoch_limit_runs_all_requested_steps():
+    report = check_lightning(TinyModel, StatefulDM, max_steps=6, resume_at=3,
+                             trainer_kwargs={"max_epochs": 3})
+    assert report.passed, report.summary
+    assert report.steps_compared == 6
