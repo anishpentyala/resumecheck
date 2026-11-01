@@ -58,3 +58,39 @@ def test_hf_epoch_boundary_resume_parity():
     )
     assert report.passed, report.summary
     assert report.steps_compared == 8
+
+
+@pytest.mark.parametrize("mutate", [False, True])
+@pytest.mark.parametrize("changing", [False, True])
+def test_batch_fingerprint_preserves_preforward_inputs(mutate, changing):
+    class ChangingDataset(Dataset):
+        calls = 0
+
+        def __len__(self):
+            return 16
+
+        def __getitem__(self, index):
+            type(self).calls += 1
+            value = float(type(self).calls if changing else index)
+            return {"x": torch.tensor([value]), "y": torch.tensor([0.])}
+
+    class InputMutatingModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor(1.))
+
+        def forward(self, x, y):
+            # Batch-independent loss makes the content fingerprint the witness.
+            # These inputs are not needed by autograd, so mutation is legal.
+            if mutate:
+                x.zero_()
+                y.zero_()
+            return {"loss": self.weight.square()}
+
+    report = check_hf(InputMutatingModel, ChangingDataset(), max_steps=6, resume_at=3, seed=42)
+    assert report.passed == (not changing), report.summary
+    if changing:
+        assert report.first_divergence.field == "batch"
+        assert report.first_divergence.step == 1
+    else:
+        assert report.steps_compared == 6
