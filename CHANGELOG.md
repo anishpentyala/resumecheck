@@ -1,5 +1,9 @@
 ## Unreleased safety correction
 
+- Compare finite extreme values without mistaking overflowed intermediate
+  differences and tolerances (`inf <= inf`) for parity. Use an exact fallback
+  only when finite inputs overflow the normal comparison arithmetic.
+
 - Lightning parity now rejects incomplete or misaligned phase step ranges.
   Equal truncated runs, crash-boundary overruns, and empty resumed phases
   cannot certify a requested longer experiment.

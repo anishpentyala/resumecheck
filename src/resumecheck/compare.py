@@ -36,7 +36,16 @@ def _floats_close(a: float, b: float, rtol: float, atol: float) -> bool:
         return math.isnan(a) and math.isnan(b)
     if math.isinf(a) or math.isinf(b):
         return a == b
-    return abs(a - b) <= atol + rtol * abs(b)
+    difference = abs(a - b)
+    tolerance = atol + rtol * abs(b)
+    if math.isfinite(difference) and math.isfinite(tolerance):
+        return difference <= tolerance
+    # All inputs are finite here. Overflow in either intermediate cannot
+    # establish closeness: inf <= inf would falsely verify some pairs.
+    # Exact rational arithmetic is only needed on this rare fallback path.
+    from fractions import Fraction
+
+    return abs(Fraction(a) - Fraction(b)) <= Fraction(atol) + Fraction(rtol) * abs(Fraction(b))
 
 
 def compare_trajectories(
