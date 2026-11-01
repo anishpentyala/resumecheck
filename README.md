@@ -19,6 +19,11 @@ and the resume-bug track record of that ecosystem
 ([litData#775](https://github.com/Lightning-AI/litData/issues/775) and the
 lightning resume-issue cluster) shows how often practitioners hit them.
 
+NumPy masked arrays are rejected because their raw-byte representation discards
+masks and substitutes fill values, which can hide a change in batch content.
+For explicit comparison, convert them to a native container holding the data,
+mask and any relevant fill value before recording.
+
 NumPy arrays containing Python objects are rejected, including structured dtypes
 with object fields: their raw bytes hold object addresses rather than object
 content. Opaque objects are also rejected: `repr()` is display text, not proof

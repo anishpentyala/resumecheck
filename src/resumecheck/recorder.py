@@ -47,6 +47,15 @@ def fingerprint_tensor(obj: Any) -> str:
                 emit(b"tensor", f"{arr.dtype}|{arr.shape}|".encode() + arr.tobytes())
             return
         if hasattr(x, "tobytes") and not isinstance(x, (bytes, str)):
+            if hasattr(x, "mask") and hasattr(x, "filled"):
+                # MaskedArray.tobytes substitutes fill values and discards the
+                # mask and hidden data. Even nomask instances carry semantics
+                # that the plain-array encoding cannot represent safely.
+                raise TypeError(
+                    "masked arrays cannot be fingerprinted by raw bytes; "
+                    "convert explicitly to a supported container containing "
+                    "the data, mask and any relevant fill value"
+                )
             dtype = getattr(x, "dtype", None)
             if getattr(dtype, "hasobject", False):
                 # Object-array bytes are Python object addresses, not content.

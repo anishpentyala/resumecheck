@@ -1,5 +1,8 @@
 ## Unreleased safety correction
 
+- Reject NumPy masked arrays instead of losing their mask and hidden data
+  through raw bytes. Explicit data/mask/fill containers remain supported.
+
 - Compare finite extreme values without mistaking overflowed intermediate
   differences and tolerances (`inf <= inf`) for parity. Use an exact fallback
   only when finite inputs overflow the normal comparison arithmetic.
