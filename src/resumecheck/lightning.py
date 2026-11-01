@@ -108,6 +108,20 @@ def _make_callback_cls():
     return RecorderCallback
 
 
+def _require_phase_steps(trajectory: Trajectory, first: int, last: int, phase: str) -> None:
+    """Never certify equal prefixes when a requested training phase did not run."""
+    observed = [record.step for record in trajectory.steps]
+    expected_count = last - first + 1
+    if len(observed) != expected_count or any(
+        step != first + offset for offset, step in enumerate(observed)
+    ):
+        raise ValueError(
+            f"Lightning {phase} phase did not record the requested optimizer steps "
+            f"{first}..{last}: got {observed}. Resume parity was not verified; "
+            "check epoch limits, stopping callbacks, and the available training data."
+        )
+
+
 def check_lightning(
     module_factory: Callable[[], Any],
     datamodule_factory: Callable[[], Any],
@@ -129,7 +143,9 @@ def check_lightning(
     callback-provided microbatch losses, and gradient norm is sampled at the
     window's final batch. This compares window-level loss, not each individual
     microbatch loss. Unsupported optimizer-step jumps and incomplete windows
-    raise rather than silently dropping data.
+    raise rather than silently dropping data. Every phase must record its exact
+    requested optimizer-step range. Epoch limits or other stopping conditions
+    that prevent this raise ValueError instead of certifying a shorter run.
     """
     _require_lightning()
     import lightning.pytorch as pl
@@ -163,6 +179,7 @@ def check_lightning(
 
     # Phase 1: uninterrupted
     full = run("uninterrupted", max_steps)
+    _require_phase_steps(full, 1, max_steps, "uninterrupted")
 
     # Phase 2: pre-crash segment, then resume
     import tempfile, os
@@ -193,6 +210,7 @@ def check_lightning(
         cb_a = RecorderCallback(rec_a)
         trainer_a = pl.Trainer(max_steps=max_steps, callbacks=[cb_a, StopAtCallback(resume_at)], **kwargs)
         trainer_a.fit(module_factory(), datamodule_factory())
+        _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
         ckpt = os.path.join(tmp, "crash.ckpt")
         trainer_a.save_checkpoint(ckpt)
 
@@ -200,6 +218,7 @@ def check_lightning(
         cb_b = RecorderCallback(rec_b)
         trainer_b = pl.Trainer(max_steps=max_steps, callbacks=[cb_b], **kwargs)
         trainer_b.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt)
+        _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
 
     resumed = Trajectory(name="resumed", meta={"seed": seed})
     resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
