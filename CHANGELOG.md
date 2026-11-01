@@ -1,5 +1,9 @@
 ## Unreleased safety correction
 
+- Lightning parity now rejects incomplete or misaligned phase step ranges.
+  Equal truncated runs, crash-boundary overruns, and empty resumed phases
+  cannot certify a requested longer experiment.
+
 - Fingerprint dense bfloat16 and float8 batch tensors without requiring a
   NumPy dtype or casting away their exact bits. Preserve existing fingerprints
   for NumPy-supported tensor dtypes.
@@ -21,6 +25,7 @@
 - Cover nested batch differences through the JSON/CLI path.
 
 # Changelog
+
 
 ## Unreleased
 
