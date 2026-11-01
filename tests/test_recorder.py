@@ -248,3 +248,52 @@ class TestMaskedArrayRejection:
         assert fingerprint_tensor(encoded) != fingerprint_tensor(changed)
         changed = dict(encoded, fill_value=0.)
         assert fingerprint_tensor(encoded) != fingerprint_tensor(changed)
+
+
+class TestByteProviderMetadata:
+    def test_stdlib_array_typecodes_cannot_collapse_to_same_bytes(self):
+        from array import array
+        import pytest
+        integer = array('I', [0x3f800000])
+        floating = array('f', [1.0])
+        assert integer.tobytes() == floating.tobytes()
+        for value in (integer, floating):
+            with pytest.raises(TypeError, match="unsupported batch value type"):
+                fingerprint_tensor(value)
+
+    def test_memoryview_format_and_shape_are_not_discarded(self):
+        from array import array
+        import pytest
+        for value in (memoryview(array('I', [0x3f800000])),
+                      memoryview(array('f', [1.0])),
+                      memoryview(b'abcd').cast('B', shape=[2, 2])):
+            with pytest.raises(TypeError, match="unsupported batch value type"):
+                fingerprint_tensor(value)
+
+    def test_nested_incomplete_byte_provider_does_not_record(self):
+        from array import array
+        import pytest
+        recorder = TrajectoryRecorder()
+        with pytest.raises(TypeError, match="unsupported batch value type"):
+            recorder.record(0, loss=1., batch={'input': [array('f', [1.])]})
+        assert not recorder.trajectory.steps
+
+    def test_missing_shape_or_dtype_cannot_be_encoded_as_none(self):
+        import pytest
+        class NoShape:
+            dtype = 'f4'
+            def tobytes(self): return b'1234'
+        class NoDtype:
+            shape = (1,)
+            def tobytes(self): return b'1234'
+        for value in (NoShape(), NoDtype()):
+            with pytest.raises(TypeError, match="unsupported batch value type"):
+                fingerprint_tensor(value)
+
+    def test_numpy_array_and_scalar_encoding_remains_identical(self):
+        import hashlib
+        for value in (np.array([1.], dtype='f4'), np.float32(1), np.array(3),
+                      np.array([], dtype='i2'), np.array([(1, 2.)], dtype=[('x', 'i4'), ('y', 'f4')])):
+            payload = f'{value.dtype}|{value.shape}|'.encode() + value.tobytes()
+            expected = 'v2:' + hashlib.sha256(b'array' + str(len(payload)).encode() + b':' + payload).hexdigest()[:16]
+            assert fingerprint_tensor(value) == expected
