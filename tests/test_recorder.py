@@ -154,3 +154,54 @@ class TestObjectArrayFingerprint:
     def test_strings_and_nested_native_containers_remain_supported(self):
         assert fingerprint_tensor(np.array(["a", "b"])) == fingerprint_tensor(np.array(["a", "b"]))
         assert fingerprint_tensor([{"token": 1}]) != fingerprint_tensor([{"token": 2}])
+
+
+class TestOpaqueBatchFingerprint:
+    def test_constant_repr_mutable_batch_is_rejected(self):
+        import pytest
+        class Batch:
+            def __init__(self): self.tokens = [1]
+            def __repr__(self): return "Batch()"
+        batch = Batch()
+        rec = TrajectoryRecorder()
+        with pytest.raises(TypeError, match="unsupported batch value type Batch"):
+            rec.record(0, batch=batch)
+        batch.tokens[0] = 2
+        with pytest.raises(TypeError):
+            rec.record(0, batch=batch)
+        assert rec.trajectory.steps == []
+
+    def test_opaque_nested_batch_is_rejected(self):
+        import pytest
+        with pytest.raises(TypeError, match="unsupported batch value type object"):
+            fingerprint_tensor({"tokens": [1, object()]})
+
+    def test_broken_array_conversion_cannot_fall_back_to_repr(self):
+        import pytest
+        class BrokenArray:
+            def tobytes(self): raise ValueError("cannot encode")
+            def __repr__(self): return "constant"
+        with pytest.raises(TypeError, match="unsupported batch value type BrokenArray"):
+            fingerprint_tensor(BrokenArray())
+
+    def test_repr_spoof_cannot_alias_builtin_scalar(self):
+        import pytest
+        class PretendInt:
+            def __repr__(self): return "1"
+        class StatefulInt(int):
+            pass
+        for value in (PretendInt(), StatefulInt(1)):
+            with pytest.raises(TypeError, match="unsupported batch value type"):
+                fingerprint_tensor(value)
+
+    def test_supported_scalars_keep_existing_fingerprints(self):
+        import hashlib
+        for value in (None, False, True, -1, 0, 1, 2.5, complex(1, 2)):
+            payload = repr(value).encode()
+            expected = "v2:" + hashlib.sha256(b"repr" + str(len(payload)).encode() + b":" + payload).hexdigest()[:16]
+            assert fingerprint_tensor(value) == expected
+
+    def test_supported_nested_batch_remains_content_sensitive(self):
+        first = {"tokens": [1, 2], "mask": (True, False), "score": 1.5, "label": "a"}
+        second = {"tokens": [1, 3], "mask": (True, False), "score": 1.5, "label": "a"}
+        assert fingerprint_tensor(first) != fingerprint_tensor(second)
