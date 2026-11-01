@@ -297,3 +297,32 @@ class TestByteProviderMetadata:
             payload = f'{value.dtype}|{value.shape}|'.encode() + value.tobytes()
             expected = 'v2:' + hashlib.sha256(b'array' + str(len(payload)).encode() + b':' + payload).hexdigest()[:16]
             assert fingerprint_tensor(value) == expected
+
+class TestRecorderStepIndexValidation:
+    """A step identifier must never silently lose fractional/type information."""
+
+    def test_fractional_steps_do_not_silently_alias(self):
+        import pytest
+        for value in (0.1, 0.9, 1.0, "1", True, None):
+            recorder = TrajectoryRecorder()
+            with pytest.raises(TypeError, match="step must be an integer"):
+                recorder.record(value, loss=1.0)
+            assert recorder.trajectory.steps == []
+
+    def test_integer_protocol_values_preserve_exact_indices(self):
+        import numpy as np
+        recorder = TrajectoryRecorder()
+        for value in (0, np.int64(1), 2**70):
+            recorder.record(value, loss=1.)
+        assert [record.step for record in recorder.trajectory.steps] == [0, 1, 2**70]
+        assert all(type(record.step) is int for record in recorder.trajectory.steps)
+
+    def test_conversion_error_does_not_append(self):
+        import pytest
+        class FloatOnly:
+            def __int__(self):
+                return 1
+        recorder = TrajectoryRecorder()
+        with pytest.raises(TypeError, match="step must be an integer"):
+            recorder.record(FloatOnly(), loss=1.)
+        assert recorder.trajectory.steps == []
