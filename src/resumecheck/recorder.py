@@ -79,7 +79,16 @@ def fingerprint_tensor(obj: Any) -> str:
         if isinstance(x, str):
             emit(b"str", x.encode())
             return
-        emit(b"repr", repr(x).encode())
+        if type(x) in (type(None), bool, int, float, complex):
+            # Keep scalar fingerprints stable, but never mistake an opaque
+            # object's display text for its content. Scalar subclasses can
+            # override repr or carry additional state, so require exact types.
+            emit(b"repr", repr(x).encode())
+            return
+        raise TypeError(
+            f"unsupported batch value type {type(x).__name__}; "
+            "convert the batch to supported tensors, arrays, scalars or containers"
+        )
 
     walk(obj)
     return "v2:" + hashlib.sha256(b"".join(parts)).hexdigest()[:16]

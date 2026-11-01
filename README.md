@@ -21,9 +21,12 @@ lightning resume-issue cluster) shows how often practitioners hit them.
 
 NumPy arrays containing Python objects are rejected, including structured dtypes
 with object fields: their raw bytes hold object addresses rather than object
-content. Convert those batches to supported tensors, non-object arrays or native
-containers before recording. Numeric structured arrays and fixed-width strings
-remain supported.
+content. Opaque objects are also rejected: `repr()` is display text, not proof
+of batch content. Convert those batches to supported tensors, non-object arrays,
+native containers, strings/bytes or built-in scalars before recording. Built-in
+scalar types are None, bool, int, float and complex; scalar subclasses with
+additional state are not supported. Numeric structured arrays and fixed-width
+strings remain supported.
 
 ## How it works
 
