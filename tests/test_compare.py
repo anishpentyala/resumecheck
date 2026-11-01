@@ -1,3 +1,4 @@
+import pytest
 from resumecheck.compare import compare_trajectories
 from resumecheck.recorder import StepRecord, Trajectory
 
@@ -224,3 +225,24 @@ def test_monotonic_nonconsecutive_steps_remain_supported():
     a = traj("a", [1.0, 2.0], steps=[10, 20])
     b = traj("b", [1.0, 2.0], steps=[10, 20])
     assert compare_trajectories(a, b).passed
+
+
+@pytest.mark.parametrize("field", ["loss", "grad_norm"])
+@pytest.mark.parametrize("a,b,rtol,atol", [
+    (-1e308, 1e308, .9, 9e307),
+    (1e308, -1e308, .9, 9e307),
+    (-1e308, 1e308, 1., 1e308),
+    (-1e308, 1e308, 1e308, 0.),
+    (1e308, 1e308, 1e308, 1e308),
+    (1e308, 0., 0., 1e308),
+    (-1e308, 1e308, 0., 1e308),
+])
+def test_finite_extremes_against_independent_decimal_oracle(field, a, b, rtol, atol):
+    from decimal import Decimal, localcontext
+    with localcontext() as ctx:
+        ctx.prec = 2000
+        expected = abs(Decimal(a) - Decimal(b)) <= Decimal(atol) + Decimal(rtol) * abs(Decimal(b))
+    uninterrupted = Trajectory("a", [StepRecord(1, **{field: a})])
+    resumed = Trajectory("b", [StepRecord(1, **{field: b})])
+    report = compare_trajectories(uninterrupted, resumed, rtol=rtol, atol=atol)
+    assert report.passed == expected, report.summary
