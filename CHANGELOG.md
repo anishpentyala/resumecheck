@@ -1,5 +1,8 @@
 ## Unreleased safety correction
 
+- HF batch fingerprints now use the snapshot taken before model.forward,
+  so legal in-place input changes cannot hide different consumed batches.
+
 - Reject NumPy masked arrays instead of losing their mask and hidden data
   through raw bytes. Explicit data/mask/fill containers remain supported.
 
