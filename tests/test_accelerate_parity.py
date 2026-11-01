@@ -486,3 +486,37 @@ def test_accelerate_workers_mid_epoch_later_epoch_regression():
     assert report.steps_compared == 6
     assert report.first_divergence.step == 7
     assert report.first_divergence.field == "batch"
+
+
+@pytest.mark.parametrize("route", ["stateful", "skip"])
+@pytest.mark.parametrize("changing,mutate", [(False, False), (False, True), (True, False), (True, True)])
+def test_preforward_batch_snapshot(route, changing, mutate):
+    from resumecheck.accelerate import check_accelerate_skip_path
+
+    class ChangingDataset(Dataset):
+        calls = 0
+        def __len__(self):
+            return 16
+        def __getitem__(self, index):
+            type(self).calls += 1
+            value = float(type(self).calls if changing else index)
+            return {"x": torch.tensor([value]), "y": torch.tensor([0.])}
+
+    class MutatingModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor(1.))
+        def forward(self, x, y):
+            if mutate:
+                x.zero_()
+                y.zero_()
+            return {"loss": self.weight.square()}
+
+    check = check_accelerate if route == "stateful" else check_accelerate_skip_path
+    report = check(MutatingModel, ChangingDataset(), max_steps=6, resume_at=3, seed=42)
+    assert report.passed == (not changing), report.summary
+    if changing:
+        assert report.first_divergence.field == "batch"
+        assert report.first_divergence.step == 1
+    else:
+        assert report.steps_compared == 6
