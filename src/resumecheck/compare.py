@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 import operator
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from .recorder import Trajectory
 
@@ -59,6 +59,7 @@ def compare_trajectories(
     check_grad_norm: bool = True,
     allow_partial: bool = False,
     check_model_state: bool = True,
+    check_extras: Optional[Sequence[str]] = None,
 ) -> CompareReport:
     """Compare step-by-step. The first field to exceed tolerance at the
     earliest step is reported as the divergence - that step is where resume
@@ -74,7 +75,19 @@ def compare_trajectories(
     ``allow_partial=True`` to explicitly scope the check to the common
     prefix: a step-count mismatch then demotes to a warning, while having
     nothing comparable or one-sided fields still fails.
+    ``check_extras`` optionally names recorded numeric extras such as ``lr``.
+    Every selected field must be present and finite on both sides at each
+    compared step. They use the same rtol/atol; unselected extras remain
+    outside the comparison. This does not verify full scheduler/optimizer state.
     """
+    # Named extras are opt-in. Missing/malformed evidence must never be
+    # silently ignored, even when other enabled observables match.
+    if isinstance(check_extras, (str, bytes)):
+        raise TypeError("check_extras must be a sequence of nonempty field names")
+    extra_names = tuple(check_extras) if check_extras is not None else ()
+    if any(not isinstance(name, str) or not name for name in extra_names):
+        raise ValueError("check_extras field names must be nonempty strings")
+    extra_names = tuple(dict.fromkeys(extra_names))
     if not math.isfinite(rtol) or not math.isfinite(atol) or rtol < 0 or atol < 0:
         raise ValueError("rtol and atol must be finite and nonnegative")
     normalized = []
@@ -104,7 +117,7 @@ def compare_trajectories(
     state_expected = check_model_state and any(record.model_fingerprint is not None for record in a + b)
     one_sided: set = set()
     if not any((check_loss, check_batch, check_grad_norm)) and not (
-        state_expected
+        state_expected or extra_names
     ):
         missing.append("no checks enabled")
 
@@ -133,8 +146,47 @@ def compare_trajectories(
         if not any(
             enabled and getattr(sa, name) is not None and getattr(sb, name) is not None
             for name, enabled in enabled_fields
-        ):
+        ) and not extra_names:
             missing.append(f"no comparable enabled fields at step {sa.step}")
+        for name in extra_names:
+            values = []
+            for label, record in (("uninterrupted", sa), ("resumed", sb)):
+                if not isinstance(record.extras, dict) or name not in record.extras:
+                    missing.append(f"extra {name!r} missing in {label} at step {sa.step}")
+                    values.append(None)
+                    continue
+                value = record.extras[name]
+                try:
+                    valid = (not isinstance(value, bool)
+                             and isinstance(value, (int, float))
+                             and math.isfinite(value))
+                except (OverflowError, ValueError, TypeError):
+                    valid = False
+                if not valid:
+                    missing.append(f"extra {name!r} must be a finite number in {label} at step {sa.step}")
+                    values.append(None)
+                else:
+                    values.append(value)
+            if all(value is not None for value in values):
+                va, vb = values
+                # Accepted JSON integers may exceed float's exact range.
+                # Mixed subtraction would round before testing, and a large
+                # integer difference may overflow math.isfinite. Compare the
+                # represented values exactly against the same tolerance rule.
+                from fractions import Fraction
+
+                close = abs(Fraction(va) - Fraction(vb)) <= (
+                    Fraction(atol) + Fraction(rtol) * abs(Fraction(vb)))
+                if not close:
+                    return CompareReport(
+                        passed=False, steps_compared=i,
+                        first_divergence=Divergence(
+                            step=sa.step, field=f"extras.{name}",
+                            value_a=va, value_b=vb,
+                            detail=f"recorded extra {name!r} differs at step {sa.step}: {va} vs {vb} (rtol={rtol}, atol={atol})",
+                        ), missing_fields=missing,
+                        summary=f"DIVERGED at step {sa.step}: extra {name!r} {va} vs {vb}",
+                    )
         if check_batch:
             if any(fp is not None and (not isinstance(fp, str) or not fp.startswith("v2:")) for fp in (sa.batch_fingerprint, sb.batch_fingerprint)):
                 if "legacy_fingerprint" not in one_sided:
@@ -229,6 +281,7 @@ def compare_trajectories(
         summary = (
             f"PASS: {n} steps identical within rtol={rtol}, atol={atol}"
             + ("; model-state fingerprints match exactly" if state_expected else "")
+            + (f"; compared extras {', '.join(repr(name) for name in extra_names)}" if extra_names else "")
             + (f" (warnings: {'; '.join(missing)})" if missing else "")
         )
     else:
@@ -245,4 +298,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-                                                 )
+    )

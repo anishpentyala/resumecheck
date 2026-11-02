@@ -517,3 +517,31 @@ pytest tests/
 Early prototype. Core compare engine and recorder are stable; the Lightning
 adapter covers single-process CPU training. Synthetic fixtures only — no real
 datasets or private training data are used anywhere in the repo.
+
+## Compare recorded learning rates and other numeric extras
+
+The manual recorder already saves named numeric extras. Opt into comparing
+specific fields when loss and batch evidence alone would miss their drift:
+
+```python
+rec.record(step, loss=loss, batch=batch, lr=optimizer.param_groups[0]["lr"])
+report = compare_trajectories(full, resumed, check_extras=["lr"])
+```
+
+```bash
+resumecheck compare full.json resumed.json --extra lr
+# Repeat --extra NAME for more fields.
+```
+
+Defaults still ignore extras. Selected extras use the same `rtol` and `atol`
+as losses and must be present and finite in both runs at every compared step.
+A missing, null, boolean, string or nonfinite selected value fails verification
+even when matching loss evidence is available. A numeric mismatch reports
+`extras.NAME` and its first differing step. With partial comparison enabled,
+only the common prefix is checked, as for the existing fields.
+
+This compares the recorded scalar values, not complete optimizer or scheduler
+state. Equal learning rates do not prove their internal state was restored.
+Adapters do not automatically record these extras; use the manual recorder or
+previously recorded trajectory JSON. Existing adapter artifact replay keeps
+its original saved comparison scope and does not opt into extras.
