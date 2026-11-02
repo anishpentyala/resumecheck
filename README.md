@@ -371,6 +371,26 @@ Requires `pip install torch transformers accelerate`; about 2 minutes on
 CPU including the one-time model download. Reference run: PASS, 8 steps
 identical within rtol=1e-5, atol=1e-7.
 
+### Lightning dropout with application-owned CPU RNG checkpoints
+
+```bash
+python examples/lightning_dropout_resume.py --accumulation 3 --artifacts-dir ./dropout-evidence
+python examples/lightning_dropout_resume.py --accumulation 3 --without-rng-restore
+```
+
+The first command is a small four-step CPU check with exact model-state evidence.
+The second deliberately disables the example model's RNG restoration and exits1
+on divergence. Both can retain replayable artifacts. Tests exercise accumulation1/2/3/4
+with restoration on and off.
+
+The model stores Torch CPU RNG state in its own checkpoint hook and restores it
+before resumed training. Its DataLoader uses a separate seeded generator so
+iterator creation does not consume model RNG. Constant synthetic input isolates
+this RNG check from sampler-position restoration; it does not demonstrate shuffling
+or real-data correctness. This is example application code, not a resumecheck
+feature that restores RNG for arbitrary models. Python, NumPy, CUDA, distributed
+and worker RNG are outside its scope. Requires Torch and Lightning; no downloads.
+
 ## Install & test
 
 ```bash
