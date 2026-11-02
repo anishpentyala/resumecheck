@@ -176,7 +176,7 @@ configurations. Accumulation2/3 are exercised in the HF CI job.
 
 ### Retain evidence after an adapter check
 
-For small deterministic CPU HF or Lightning checks, opt into exact model-state evidence:
+For small deterministic CPU HF, Lightning or Accelerate checks, opt into exact model-state evidence:
 
 ```python
 report = check_hf(model_factory, dataset, max_steps=12, resume_at=5,
@@ -395,6 +395,17 @@ fingerprint-gated strict-xfail spec with a negative control. Its opt-in
 mitigation mode (`skip_path_set_epoch_workaround=True`) applies the
 verified `set_epoch(epoch)` realignment to each post-resume epoch and
 verifies parity WITH it; fail-closed to mid-epoch resumes.
+
+### Accelerate model-state evidence
+
+Both Accelerate adapters accept `record_model_state=True` to retain exact
+post-optimizer-step fingerprints of the unwrapped model's full `state_dict()`,
+including buffers. The default remains off and preserves legacy evidence.
+Equal losses can hide parameter or buffer changes; enabling state evidence
+checks these too and exports replayable schema-2 bundles. This copies and
+hashes the whole model each step and is intended for small CPU checks, not
+production training. It does not verify optimizer or arbitrary application
+state, or expand the adapters' documented sampler/workaround support.
 
 ### Lazy conjugate and negative tensor views
 
