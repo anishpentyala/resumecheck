@@ -112,6 +112,20 @@ stopping condition or incomplete recording prevents this, it raises `ValueError`
 Equal shorter trajectories do not verify the requested checkpoint-and-resume
 experiment. Choose training limits and enough data to let all three phases run.
 
+## Hugging Face gradient accumulation
+
+The HF Trainer adapter records one optimizer window when
+`gradient_accumulation_steps` is greater than one. Its batch fingerprint includes
+all consumed training microbatches in order, including short final windows. Loss
+is the mean of the raw model losses in that window, not Trainer's normalized
+backward loss. Evaluation losses are excluded. This compares window-level loss;
+it does not compare every individual microbatch loss.
+
+Each uninterrupted, pre-crash and resumed phase must record the exact requested
+optimizer-step range. Missing phases and incomplete windows raise rather than
+certify a shorter run. A PASS remains scoped to the recorded observables and the
+tested deterministic CPU setup, not general resume correctness.
+
 ## Lightning gradient accumulation
 
 The Lightning adapter records one optimizer-step window when

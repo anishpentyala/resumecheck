@@ -31,32 +31,61 @@ def _require_hf():
 
 
 def _make_trainer_cls(recorder: TrajectoryRecorder):
-    from transformers import Trainer
+    from transformers import Trainer, TrainerCallback
 
     class RecordingTrainer(Trainer):
-        """Trainer that records per-step loss and batch fingerprints.
+        """Record every consumed microbatch in one optimizer-window record."""
 
-        Steps are recorded at optimizer-step granularity via compute_loss;
-        with gradient_accumulation_steps=1 (the only supported setting here)
-        that is one record per optimizer step.
-        """
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._rc_fingerprints = []
+            self._rc_losses = []
+            self._rc_recording = False
+            owner = self
+
+            class WindowCallback(TrainerCallback):
+                def on_step_end(self, args, state, control, **kwargs):
+                    if not owner._rc_fingerprints:
+                        raise ValueError("HF optimizer step has no recorded training microbatches")
+                    fingerprints = owner._rc_fingerprints
+                    fp = fingerprints[0] if len(fingerprints) == 1 else fingerprint_tensor(fingerprints)
+                    recorder.record(step=state.global_step, loss=sum(owner._rc_losses) / len(owner._rc_losses))
+                    recorder.trajectory.steps[-1].batch_fingerprint = fp
+                    owner._rc_fingerprints = []
+                    owner._rc_losses = []
+
+                def on_train_end(self, args, state, control, **kwargs):
+                    if owner._rc_fingerprints:
+                        raise ValueError("HF recorder stopped with an incomplete optimizer window")
+
+            self.add_callback(WindowCallback())
+
+        def training_step(self, *args, **kwargs):
+            self._rc_recording = True
+            try:
+                return super().training_step(*args, **kwargs)
+            finally:
+                self._rc_recording = False
 
         def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
-            fp = fingerprint_tensor(inputs)
+            fp = fingerprint_tensor(inputs) if self._rc_recording else None
             outputs = model(**inputs)
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-            self._rc_step += 1
-            recorder.record(
-                step=self._rc_step,
-                loss=float(loss.detach().cpu()),
-                batch=None,  # preserve the snapshot taken before model.forward
-            )
-            recorder.trajectory.steps[-1].batch_fingerprint = fp
+            if self._rc_recording:
+                self._rc_fingerprints.append(fp)
+                self._rc_losses.append(float(loss.detach().cpu()))
             return (loss, outputs) if return_outputs else loss
 
-        _rc_step = 0
-
     return RecordingTrainer
+
+
+def _require_phase_steps(trajectory: Trajectory, first: int, last: int, phase: str) -> None:
+    observed = [record.step for record in trajectory.steps]
+    if len(observed) != last - first + 1 or any(step != first + offset for offset, step in enumerate(observed)):
+        raise ValueError(
+            f"HF {phase} phase did not record the requested optimizer steps "
+            f"{first}..{last}: got {observed}. Resume parity was not verified."
+        )
 
 
 def check_hf(
@@ -74,12 +103,18 @@ def check_hf(
 
     ``model_factory`` must return a fresh nn.Module whose forward returns a
     dict (or tuple) with a "loss" entry; ``train_dataset`` is a map-style
-    dataset of dicts of tensors. Deterministic CPU only.
+    dataset of dicts of tensors. Deterministic CPU only. One trajectory record
+    covers one optimizer step, including every consumed training microbatch
+    fingerprint in order and the mean of its raw model losses. This compares
+    window-level loss, not individual microbatch losses or Trainer's normalized
+    backward loss. Evaluation calls do not enter training windows. Every phase
+    must record its exact requested optimizer-step range; incomplete windows
+    and missing phases raise instead of certifying a shorter run.
     """
     _require_hf()
     import tempfile
 
-    from transformers import Trainer, TrainingArguments, set_seed
+    from transformers import TrainingArguments, set_seed
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
@@ -101,29 +136,21 @@ def check_hf(
     if training_args_kwargs:
         base_args.update(training_args_kwargs)
 
-    def run(name: str, steps: int, ckpt: Optional[str] = None, save_at_end: bool = False) -> Trajectory:
+    def run(name: str, steps: int) -> Trajectory:
         set_seed(seed)
         rec = TrajectoryRecorder(name, seed=seed)
         RecordingTrainer = _make_trainer_cls(rec)
         args_dict = dict(base_args, max_steps=steps)
-        if save_at_end:
-            args_dict.update(save_strategy="steps", save_steps=resume_at, save_total_limit=1)
         trainer = RecordingTrainer(
             model=model_factory(),
             args=TrainingArguments(**args_dict),
             train_dataset=train_dataset,
         )
-        trainer.train(resume_from_checkpoint=ckpt)
-        if save_at_end:
-            # ensure the checkpoint exists exactly at resume_at
-            import glob, os
-
-            ckpts = sorted(glob.glob(os.path.join(args_dict["output_dir"], "checkpoint-*")))
-            assert ckpts, "expected a checkpoint at resume_at"
-            return rec.trajectory
+        trainer.train()
         return rec.trajectory
 
     full = run("uninterrupted", max_steps)
+    _require_phase_steps(full, 1, max_steps, "uninterrupted")
 
     from transformers import TrainerCallback
 
@@ -153,6 +180,7 @@ def check_hf(
             callbacks=[_StopAt(resume_at)],
         )
         trainer_a.train()
+        _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
         import glob, os
 
         ckpts = glob.glob(os.path.join(tmp, "checkpoint-*"))
@@ -166,19 +194,9 @@ def check_hf(
             train_dataset=train_dataset,
         )
         trainer_b.train(resume_from_checkpoint=ckpts[0])
+        _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
 
     resumed = Trajectory(name="resumed", meta={"seed": seed})
-    # offset the resumed phase's step numbers so they continue the pre-crash run
-    rec_b.trajectory.steps = [
-        type(s)(
-            step=s.step + resume_at,
-            loss=s.loss,
-            batch_fingerprint=s.batch_fingerprint,
-            grad_norm=s.grad_norm,
-            extras=s.extras,
-        )
-        for s in rec_b.trajectory.steps
-    ]
     resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
 
     return compare_trajectories(full, resumed, rtol=rtol, atol=atol)

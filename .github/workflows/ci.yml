@@ -71,7 +71,7 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest transformers==5.20.2 accelerate==1.15.0
-      - run: python -m pytest tests/test_hf_parity.py -q
+      - run: python -m pytest tests/test_hf_parity.py tests/test_hf_accumulation.py -q
 
   accelerate:
     # Pin tied to README: accelerate 1.15.0 + torchdata 0.11.0, verified
