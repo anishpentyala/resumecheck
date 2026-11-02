@@ -1,5 +1,8 @@
 ## Unreleased safety correction
 
+- Add a runnable manual CPU checkpoint example with independent model, AdamW,
+  scheduler, RNG and sampler omission controls, plus replayable evidence.
+
 - Resolve lazy conjugate and negative tensor bits before content hashing,
   preserving logical values without changing caller tensors.
 
