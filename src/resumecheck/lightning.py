@@ -185,78 +185,79 @@ def check_lightning(
         artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
     import tempfile as _tf
-    kwargs = {
-        "default_root_dir": _tf.mkdtemp(prefix="resumecheck-"),
-        "accelerator": "cpu",
-        "devices": 1,
-        "enable_checkpointing": True,
-        "logger": False,
-        "enable_progress_bar": False,
-        "enable_model_summary": False,
-        "num_sanity_val_steps": 0,
-    }
-    if trainer_kwargs:
-        kwargs.update(trainer_kwargs)
+    with _tf.TemporaryDirectory(prefix="resumecheck-") as output_root:
+        kwargs = {
+            "default_root_dir": output_root,
+            "accelerator": "cpu",
+            "devices": 1,
+            "enable_checkpointing": True,
+            "logger": False,
+            "enable_progress_bar": False,
+            "enable_model_summary": False,
+            "num_sanity_val_steps": 0,
+        }
+        if trainer_kwargs:
+            kwargs.update(trainer_kwargs)
 
-    RecorderCallback = _make_callback_cls()
+        RecorderCallback = _make_callback_cls()
 
-    def run(name: str, steps: int, ckpt_path: Optional[str] = None) -> Trajectory:
-        pl.seed_everything(seed, workers=True)
-        rec = TrajectoryRecorder(name, seed=seed)
-        cb = RecorderCallback(rec, record_model_state)
-        trainer = pl.Trainer(max_steps=steps, callbacks=[cb], **kwargs)
-        trainer.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt_path)
-        return rec.trajectory
+        def run(name: str, steps: int, ckpt_path: Optional[str] = None) -> Trajectory:
+            pl.seed_everything(seed, workers=True)
+            rec = TrajectoryRecorder(name, seed=seed)
+            cb = RecorderCallback(rec, record_model_state)
+            trainer = pl.Trainer(max_steps=steps, callbacks=[cb], **kwargs)
+            trainer.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt_path)
+            return rec.trajectory
 
-    # Phase 1: uninterrupted
-    full = run("uninterrupted", max_steps)
-    _require_phase_steps(full, 1, max_steps, "uninterrupted")
+        # Phase 1: uninterrupted
+        full = run("uninterrupted", max_steps)
+        _require_phase_steps(full, 1, max_steps, "uninterrupted")
 
-    # Phase 2: pre-crash segment, then resume
-    import tempfile, os
+        # Phase 2: pre-crash segment, then resume
+        import tempfile, os
 
-    class _StopAt:
-        pass
+        class _StopAt:
+            pass
 
-    from lightning.pytorch.callbacks import Callback as _Cb
+        from lightning.pytorch.callbacks import Callback as _Cb
 
-    class StopAtCallback(_Cb):
-        """Simulate a crash: request training stop after step ``stop_at``.
+        class StopAtCallback(_Cb):
+            """Simulate a crash: request training stop after step ``stop_at``.
 
-        The trainer is configured for the FINAL max_steps so any scheduler or
-        training-length-dependent setup matches the uninterrupted run; only
-        the stop is early.
-        """
+            The trainer is configured for the FINAL max_steps so any scheduler or
+            training-length-dependent setup matches the uninterrupted run; only
+            the stop is early.
+            """
 
-        def __init__(self, stop_at: int) -> None:
-            self.stop_at = stop_at
+            def __init__(self, stop_at: int) -> None:
+                self.stop_at = stop_at
 
-        def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-            if trainer.global_step >= self.stop_at:
-                trainer.should_stop = True
+            def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+                if trainer.global_step >= self.stop_at:
+                    trainer.should_stop = True
 
-    with tempfile.TemporaryDirectory() as tmp:
-        pl.seed_everything(seed, workers=True)
-        rec_a = TrajectoryRecorder("pre-crash", seed=seed)
-        cb_a = RecorderCallback(rec_a, record_model_state)
-        trainer_a = pl.Trainer(max_steps=max_steps, callbacks=[cb_a, StopAtCallback(resume_at)], **kwargs)
-        trainer_a.fit(module_factory(), datamodule_factory())
-        _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
-        ckpt = os.path.join(tmp, "crash.ckpt")
-        trainer_a.save_checkpoint(ckpt)
+        with tempfile.TemporaryDirectory() as tmp:
+            pl.seed_everything(seed, workers=True)
+            rec_a = TrajectoryRecorder("pre-crash", seed=seed)
+            cb_a = RecorderCallback(rec_a, record_model_state)
+            trainer_a = pl.Trainer(max_steps=max_steps, callbacks=[cb_a, StopAtCallback(resume_at)], **kwargs)
+            trainer_a.fit(module_factory(), datamodule_factory())
+            _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
+            ckpt = os.path.join(tmp, "crash.ckpt")
+            trainer_a.save_checkpoint(ckpt)
 
-        rec_b = TrajectoryRecorder("resumed", seed=seed)
-        cb_b = RecorderCallback(rec_b, record_model_state)
-        trainer_b = pl.Trainer(max_steps=max_steps, callbacks=[cb_b], **kwargs)
-        trainer_b.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt)
-        _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
+            rec_b = TrajectoryRecorder("resumed", seed=seed)
+            cb_b = RecorderCallback(rec_b, record_model_state)
+            trainer_b = pl.Trainer(max_steps=max_steps, callbacks=[cb_b], **kwargs)
+            trainer_b.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt)
+            _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
 
-    resumed = Trajectory(name="resumed", meta={"seed": seed})
-    resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
+        resumed = Trajectory(name="resumed", meta={"seed": seed})
+        resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
 
-    report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
-    if artifacts_dir is not None:
-        from .artifacts import save_comparison_artifacts
+        report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+        if artifacts_dir is not None:
+            from .artifacts import save_comparison_artifacts
 
-        save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
-    return report
+            save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+        return report
