@@ -136,11 +136,11 @@ def compare_trajectories(
         ):
             missing.append(f"no comparable enabled fields at step {sa.step}")
         if check_batch:
-            if any(fp is not None and not fp.startswith("v2:") for fp in (sa.batch_fingerprint, sb.batch_fingerprint)):
+            if any(fp is not None and (not isinstance(fp, str) or not fp.startswith("v2:")) for fp in (sa.batch_fingerprint, sb.batch_fingerprint)):
                 if "legacy_fingerprint" not in one_sided:
                     one_sided.add("legacy_fingerprint")
                     missing.append(
-                        "unversioned batch fingerprints cannot verify structure; "
+                        "unversioned batch fingerprints or invalid batch_fingerprint types cannot verify structure; "
                         "record both runs with v2 fingerprints"
                     )
             if (sa.batch_fingerprint is None) != (sb.batch_fingerprint is None):
