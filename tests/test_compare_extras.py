@@ -137,3 +137,25 @@ def test_actual_scheduler_state_control_detects_rate_before_loss_moves(tmp_path)
         assert r.passed is restore_scheduler
         if not restore_scheduler:
             assert (r.first_divergence.step, r.first_divergence.field) == (1, 'extras.lr')
+
+
+@pytest.mark.parametrize('left,right', [
+    (9007199254740993, 9007199254740992.0),
+    (9007199254740992.0, 9007199254740993),
+    (10**308, -(10**308)),
+    (-(10**308), 10**308),
+])
+def test_selected_integer_precision_and_finite_pair_overflow(left, right):
+    a = _run('a', [{'counter': left}])
+    b = _run('b', [{'counter': right}])
+    r = compare_trajectories(a, b, check_extras=['counter'], rtol=0, atol=0)
+    assert not r.passed
+    assert r.first_divergence.field == 'extras.counter'
+    assert (r.first_divergence.value_a, r.first_divergence.value_b) == (left, right)
+
+
+def test_selected_integer_tolerance_uses_exact_represented_values():
+    a = _run('a', [{'counter': 9007199254740993}])
+    b = _run('b', [{'counter': 9007199254740992.0}])
+    assert compare_trajectories(a, b, check_extras=['counter'], rtol=0, atol=1).passed
+    assert not compare_trajectories(a, b, check_extras=['counter'], rtol=0, atol=.5).passed
