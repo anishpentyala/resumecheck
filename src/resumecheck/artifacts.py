@@ -67,3 +67,47 @@ def save_comparison_artifacts(
     except BaseException:
         shutil.rmtree(destination, ignore_errors=True)
         raise
+
+
+def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
+    """Recompute a completed evidence bundle using its saved settings.
+
+    This checks recorded observables, not original training, provenance, or
+    integrity against an attacker. The saved report's PASS is never trusted.
+    Only the fixed trajectory names are read; arbitrary paths in the manifest
+    are not followed. The final manifest is required to reject partial bundles.
+    """
+    from .compare import compare_trajectories
+
+    directory = Path(path)
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    if not isinstance(manifest, dict):
+        raise ValueError('artifact manifest must be an object')
+    if type(manifest.get('schema_version')) is not int or manifest['schema_version'] != 1:
+        raise ValueError('unsupported artifact schema version')
+    if manifest.get('kind') != 'resumecheck.comparison':
+        raise ValueError('unsupported artifact kind')
+    expected_files = ['uninterrupted.json', 'resumed.json', 'report.json']
+    if manifest.get('files') != expected_files:
+        raise ValueError('artifact manifest must name the fixed comparison files in order')
+    settings = manifest.get('comparison')
+    required = {'rtol', 'atol', 'check_loss', 'check_batch', 'check_grad_norm', 'allow_partial'}
+    if not isinstance(settings, dict) or set(settings) != required:
+        raise ValueError('artifact comparison settings are missing or unsupported')
+    for key in ('rtol', 'atol'):
+        if type(settings[key]) not in (int, float):
+            raise ValueError(f'artifact {key} must be a finite nonnegative number')
+    for key in ('check_loss', 'check_batch', 'check_grad_norm', 'allow_partial'):
+        if type(settings[key]) is not bool:
+            raise ValueError(f'artifact {key} must be boolean')
+    # Schema 1 is exported by the full adapter comparison, never a partial or
+    # disabled-field check. Reject settings edits that silently weaken scope.
+    if not all(settings[key] for key in ('check_loss', 'check_batch', 'check_grad_norm')) or settings['allow_partial']:
+        raise ValueError('schema 1 requires full comparisons with all recorded fields enabled')
+    # Require the saved report to be present and structurally readable, but
+    # never use its passed flag to decide this replay's result.
+    saved = json.loads((directory / 'report.json').read_text())
+    if not isinstance(saved, dict) or type(saved.get('passed')) is not bool:
+        raise ValueError('artifact report is missing or malformed')
+    return compare_trajectories(Trajectory.load(directory / 'uninterrupted.json'),
+                                Trajectory.load(directory / 'resumed.json'), **settings)
