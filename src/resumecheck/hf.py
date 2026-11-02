@@ -13,7 +13,8 @@ sampler/dataloader skip logic, RNG, and optimizer state from the checkpoint.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Union
 
 from .compare import CompareReport, compare_trajectories
 from .recorder import Trajectory, TrajectoryRecorder, fingerprint_tensor
@@ -97,6 +98,7 @@ def check_hf(
     training_args_kwargs: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-5,
     atol: float = 1e-7,
+    artifacts_dir: Optional[Union[str, Path]] = None,
 ) -> CompareReport:
     """Verify that checkpoint+resume at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -110,6 +112,13 @@ def check_hf(
     backward loss. Evaluation calls do not enter training windows. Every phase
     must record its exact requested optimizer-step range; incomplete windows
     and missing phases raise instead of certifying a shorter run.
+
+    ``artifacts_dir`` optionally saves both completed trajectories, the report,
+    and comparison settings for offline diagnosis. It must not exist, and its
+    parent must exist. No model checkpoint is retained. The directory is only
+    written after a completed comparison, including a divergent result; training
+    exceptions propagate without a bundle. Recorded losses, fingerprints and
+    metadata may be sensitive: review before sharing.
     """
     _require_hf()
     import tempfile
@@ -118,6 +127,11 @@ def check_hf(
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
+
+    if artifacts_dir is not None:
+        from .artifacts import validate_artifacts_dir
+
+        artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
     base_args: Dict[str, Any] = {
         "output_dir": tempfile.mkdtemp(prefix="resumecheck-hf-"),
@@ -199,4 +213,9 @@ def check_hf(
     resumed = Trajectory(name="resumed", meta={"seed": seed})
     resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
 
-    return compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    if artifacts_dir is not None:
+        from .artifacts import save_comparison_artifacts
+
+        save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+    return report

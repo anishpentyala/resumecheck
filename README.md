@@ -140,6 +140,29 @@ if the recorded resumed trajectory does not match. It is a CPU smoke example,
 not pretrained-model training, a quality benchmark or a guarantee for other
 configurations. Accumulation2/3 are exercised in the HF CI job.
 
+### Retain evidence after an HF check
+
+Pass `artifacts_dir="./new-evidence"` to `check_hf`, or run:
+
+```bash
+python examples/accumulated_gpt2.py --accumulation 3 --artifacts-dir ./new-evidence
+resumecheck compare ./new-evidence/uninterrupted.json ./new-evidence/resumed.json
+```
+
+The directory must not already exist, and its parent must exist. After a
+completed comparison, including a divergent result, it contains both recorded
+trajectories, `report.json`, and `manifest.json` with the comparison settings.
+For nondefault tolerances, use the manifest's `rtol` and `atol` as the compare
+CLI flags to replay the same check. The manifest is written last; without it a
+bundle is incomplete. Training exceptions do not produce a bundle. Existing
+paths are never replaced, including a path created while training runs. Export
+errors propagate instead of silently discarding evidence.
+
+This is opt-in local output: there are no uploads and no retained model
+checkpoints. Losses, data fingerprints and metadata may be sensitive. Review
+artifacts before sharing. A replay checks the recorded observables, not model
+weights or all checkpoint state.
+
 ## Lightning gradient accumulation
 
 The Lightning adapter records one optimizer-step window when

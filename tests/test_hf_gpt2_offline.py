@@ -35,3 +35,17 @@ def test_example_returns_failure_when_parity_is_not_verified(example, monkeypatc
     from resumecheck.compare import CompareReport
     monkeypatch.setattr(example, 'check_hf', lambda *a, **k: CompareReport(False, 0, summary='FAIL: deliberate control'))
     assert example.main([]) == 1
+
+
+def test_offline_example_writes_replayable_artifacts(example, tmp_path):
+    import json
+    from dataclasses import asdict
+    from resumecheck.compare import compare_trajectories
+    from resumecheck.recorder import Trajectory
+    directory = tmp_path / 'gpt2-evidence'
+    assert example.main(['--accumulation', '3', '--artifacts-dir', str(directory)]) == 0
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    report = compare_trajectories(Trajectory.load(directory / 'uninterrupted.json'),
+                                  Trajectory.load(directory / 'resumed.json'), **manifest['comparison'])
+    assert report.passed
+    assert asdict(report) == json.loads((directory / 'report.json').read_text())

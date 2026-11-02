@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.9"
       - run: pip install -e .
-      - run: python -c "import resumecheck, resumecheck.cli, resumecheck.compare, resumecheck.recorder"
+      - run: python -c "import resumecheck, resumecheck.cli, resumecheck.compare, resumecheck.recorder, resumecheck.artifacts"
 
   core:
     # torch + numpy only (test fixtures record real tensors); no framework
@@ -42,7 +42,7 @@ jobs:
       # numpy is a test-fixture dep here: torch does not require it, and
       # unlike the adapter legs no framework extra pulls it in transitively.
       - run: pip install -e . pytest numpy==2.2.6
-      - run: python -m pytest tests/test_recorder.py tests/test_cli.py tests/test_compare.py -q
+      - run: python -m pytest tests/test_recorder.py tests/test_cli.py tests/test_compare.py tests/test_artifacts.py -q
 
   lightning:
     # Pin tied to README "Validated upstream versions (2026-10-30)":
@@ -71,7 +71,7 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest transformers==5.20.2 accelerate==1.15.0
-      - run: python -m pytest tests/test_hf_parity.py tests/test_hf_accumulation.py tests/test_hf_gpt2_offline.py -q
+      - run: python -m pytest tests/test_hf_parity.py tests/test_hf_accumulation.py tests/test_hf_gpt2_offline.py tests/test_hf_artifacts.py -q
 
   accelerate:
     # Pin tied to README: accelerate 1.15.0 + torchdata 0.11.0, verified
