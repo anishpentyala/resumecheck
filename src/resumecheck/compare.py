@@ -169,7 +169,15 @@ def compare_trajectories(
                     values.append(value)
             if all(value is not None for value in values):
                 va, vb = values
-                if not _floats_close(va, vb, rtol, atol):
+                # Accepted JSON integers may exceed float's exact range.
+                # Mixed subtraction would round before testing, and a large
+                # integer difference may overflow math.isfinite. Compare the
+                # represented values exactly against the same tolerance rule.
+                from fractions import Fraction
+
+                close = abs(Fraction(va) - Fraction(vb)) <= (
+                    Fraction(atol) + Fraction(rtol) * abs(Fraction(vb)))
+                if not close:
                     return CompareReport(
                         passed=False, steps_compared=i,
                         first_divergence=Divergence(
