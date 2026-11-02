@@ -19,6 +19,13 @@ and the resume-bug track record of that ecosystem
 ([litData#775](https://github.com/Lightning-AI/litData/issues/775) and the
 lightning resume-issue cluster) shows how often practitioners hit them.
 
+Step indices must use Python's integer-index protocol; booleans, floats,
+strings and nonfinite values do not verify a training trajectory. This applies
+to directly constructed records and loaded JSON as well as recorded runs.
+Integer-like indices are normalized for comparison without changing caller
+records. Indices must still be strictly increasing. Invalid records anywhere
+in either run fail even when partial-prefix comparison is requested.
+
 Raw-byte providers without both `dtype` and `shape` metadata (including
 `array.array` and `memoryview`) are rejected rather than silently discarding
 element types or shape. Convert them explicitly to supported arrays or native
