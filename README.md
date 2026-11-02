@@ -573,3 +573,24 @@ checkpoint, proof of provenance, tamper-proof storage, or complete optimizer or
 scheduler-state verification. A person who edits both scope and evidence can
 change what is checked. Review potentially sensitive recorded values before
 sharing. Existing destinations are never replaced.
+
+### HF optimizer-group learning-rate evidence
+
+`check_hf(..., record_learning_rates=True)` records each optimizer parameter
+group's learning rate at the optimizer-window end, after the Trainer's ordinary
+scheduler step. Fields are `lr.group0`, `lr.group1`, etc., keyed by group position.
+The selected fields are compared with `rtol`/`atol`; missing group evidence fails.
+The option is off by default and can be combined with `record_model_state=True`.
+
+```python
+report = check_hf(model_factory, dataset, max_steps=6, resume_at=3,
+                  record_learning_rates=True, artifacts_dir="./rate-evidence")
+```
+
+Schema-3 evidence retains the selected rate scope for `resumecheck replay`. This
+can catch omitted scheduler restoration even when every recorded loss is constant.
+It observes rates, not the complete scheduler or optimizer state: equal rates can
+hide different scheduler internals, and group reordering is not identified by name.
+Metric-driven schedulers may update later at evaluation, outside this sampling
+point. No scheduler checkpoint or automatic recovery is added. The tested scope
+is deterministic CPU Trainer runs, including gradient accumulation1and3.

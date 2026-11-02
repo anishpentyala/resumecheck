@@ -31,7 +31,8 @@ def _require_hf():
         ) from e
 
 
-def _make_trainer_cls(recorder: TrajectoryRecorder, record_model_state: bool = False):
+def _make_trainer_cls(recorder: TrajectoryRecorder, record_model_state: bool = False,
+                      record_learning_rates: bool = False):
     from transformers import Trainer, TrainerCallback
 
     class RecordingTrainer(Trainer):
@@ -52,6 +53,8 @@ def _make_trainer_cls(recorder: TrajectoryRecorder, record_model_state: bool = F
                     fp = fingerprints[0] if len(fingerprints) == 1 else fingerprint_tensor(fingerprints)
                     recorder.record(step=state.global_step, loss=sum(owner._rc_losses) / len(owner._rc_losses))
                     recorder.trajectory.steps[-1].batch_fingerprint = fp
+                    if record_learning_rates:
+                        recorder.trajectory.steps[-1].extras.update(_optimizer_rates(owner.optimizer))
                     if record_model_state:
                         recorder.trajectory.steps[-1].model_fingerprint = fingerprint_tensor(owner.model.state_dict())
                     owner._rc_fingerprints = []
@@ -102,6 +105,7 @@ def check_hf(
     atol: float = 1e-7,
     artifacts_dir: Optional[Union[str, Path]] = None,
     record_model_state: bool = False,
+    record_learning_rates: bool = False,
 ) -> CompareReport:
     """Verify that checkpoint+resume at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -123,6 +127,13 @@ def check_hf(
     model size. Unsupported custom state raises; optimizer, scheduler, RNG and
     nonpersistent buffers are not directly checked. Deterministic CPU only.
 
+    ``record_learning_rates=True`` records each optimizer parameter group's
+    post-step/post-scheduler learning rate as ``lr.group0``, ``lr.group1``, etc.
+    These selected numeric extras are compared with the supplied tolerances and
+    retained in schema-3 artifacts for replay. Group positions are identities;
+    missing groups fail comparison. This observes rates, not full scheduler or
+    optimizer state, and adds no checkpoint payload. Default off is unchanged.
+
     ``artifacts_dir`` optionally saves both completed trajectories, the report,
     and comparison settings for offline diagnosis. It must not exist, and its
     parent must exist. No model checkpoint is retained. The directory is only
@@ -133,6 +144,8 @@ def check_hf(
     from .validation import validate_step_limits
 
     max_steps, resume_at = validate_step_limits(max_steps, resume_at)
+    if type(record_learning_rates) is not bool:
+        raise TypeError("record_learning_rates must be boolean")
     _require_hf()
     import tempfile
 
@@ -146,6 +159,12 @@ def check_hf(
         from .artifacts import validate_artifacts_dir
 
         artifacts_dir = validate_artifacts_dir(artifacts_dir)
+
+    capture_options = {}
+    if record_model_state:
+        capture_options['record_model_state'] = True
+    if record_learning_rates:
+        capture_options['record_learning_rates'] = True
 
     with tempfile.TemporaryDirectory(prefix="resumecheck-hf-") as output_root:
         base_args: Dict[str, Any] = {
@@ -168,7 +187,7 @@ def check_hf(
         def run(name: str, steps: int) -> Trajectory:
             set_seed(seed)
             rec = TrajectoryRecorder(name, seed=seed)
-            RecordingTrainer = _make_trainer_cls(rec, record_model_state=True) if record_model_state else _make_trainer_cls(rec)
+            RecordingTrainer = _make_trainer_cls(rec, **capture_options)
             args_dict = dict(base_args, max_steps=steps)
             trainer = RecordingTrainer(
                 model=model_factory(),
@@ -197,7 +216,7 @@ def check_hf(
         with tempfile.TemporaryDirectory() as tmp:
             set_seed(seed)
             rec_a = TrajectoryRecorder("pre-crash", seed=seed)
-            RecordingTrainer = _make_trainer_cls(rec_a, record_model_state=True) if record_model_state else _make_trainer_cls(rec_a)
+            RecordingTrainer = _make_trainer_cls(rec_a, **capture_options)
             # configured for the FINAL max_steps so scheduler/training plan match
             # the uninterrupted run; only the stop is early
             args_a = TrainingArguments(
@@ -216,7 +235,7 @@ def check_hf(
             assert ckpts, f"no checkpoint saved at step {resume_at} in {tmp}"
 
             rec_b = TrajectoryRecorder("resumed", seed=seed)
-            RecordingTrainerB = _make_trainer_cls(rec_b, record_model_state=True) if record_model_state else _make_trainer_cls(rec_b)
+            RecordingTrainerB = _make_trainer_cls(rec_b, **capture_options)
             trainer_b = RecordingTrainerB(
                 model=model_factory(),
                 args=TrainingArguments(**dict(base_args, max_steps=max_steps)),
@@ -228,9 +247,44 @@ def check_hf(
         resumed = Trajectory(name="resumed", meta={"seed": seed})
         resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
 
-        report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+        selected_rates = (sorted({key for trajectory in (full, resumed)
+                                  for row in trajectory.steps for key in row.extras})
+                          if record_learning_rates else None)
+        if record_learning_rates and not selected_rates:
+            raise ValueError("no optimizer learning rates were recorded")
+        report = compare_trajectories(full, resumed, rtol=rtol, atol=atol,
+                                      check_extras=selected_rates)
         if artifacts_dir is not None:
             from .artifacts import save_comparison_artifacts
 
-            save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+            save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol,
+                                      check_extras=selected_rates)
         return report
+
+
+def _optimizer_rates(optimizer) -> dict[str, float]:
+    """Post-step optimizer-group rates, not a scheduler-state fingerprint."""
+    import math
+    import numbers
+    import torch
+
+    groups = getattr(optimizer, "param_groups", None)
+    if not isinstance(groups, (list, tuple)) or not groups:
+        raise ValueError("optimizer has no learning-rate parameter groups")
+    rates = {}
+    for index, group in enumerate(groups):
+        value = group.get("lr")
+        if isinstance(value, torch.Tensor):
+            if value.numel() != 1 or value.ndim != 0 or value.dtype == torch.bool:
+                raise ValueError("optimizer learning rate must be a finite nonnegative scalar")
+            value = value.detach().cpu().item()
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            raise ValueError("optimizer learning rate must be a finite nonnegative scalar")
+        try:
+            valid = math.isfinite(value) and value >= 0
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError("optimizer learning rate must be a finite nonnegative scalar")
+        rates[f"lr.group{index}"] = float(value)
+    return rates
