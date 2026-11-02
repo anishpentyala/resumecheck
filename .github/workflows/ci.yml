@@ -56,7 +56,7 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest lightning==2.6.6
-      - run: python -m pytest tests/test_lightning_parity.py tests/test_lightning_accumulation.py -q
+      - run: python -m pytest tests/test_lightning_parity.py tests/test_lightning_accumulation.py tests/test_lightning_artifacts.py -q
 
   hf:
     # Pin tied to README: transformers 5.20.2 + accelerate 1.15.0, the
@@ -85,4 +85,4 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest accelerate==1.15.0 torchdata==0.11.0
-      - run: python -m pytest tests/test_accelerate_parity.py -q
+      - run: python -m pytest tests/test_accelerate_parity.py tests/test_accelerate_artifacts.py -q
