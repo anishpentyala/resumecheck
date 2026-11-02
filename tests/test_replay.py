@@ -76,7 +76,7 @@ def test_manifest_validation(bundle, field, value):
 
 @pytest.mark.parametrize('field,value', [
     ('rtol', '0.01'), ('atol', True), ('rtol', -1), ('atol', float('nan')),
-    ('rtol', float('inf')), ('check_loss', 1), ('check_batch', False),
+    ('rtol', float('inf')), ('rtol', 10**400), ('atol', -(10**400)), ('check_loss', 1), ('check_batch', False),
     ('check_grad_norm', None), ('allow_partial', True),
 ])
 def test_bad_or_weakened_settings_fail(bundle, field, value):
