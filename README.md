@@ -411,6 +411,28 @@ crossing epochs still need `skip_path_set_epoch_workaround=True`. Skip-path
 boundary resumes, workers, CUDA/distributed and stochastic datasets are outside
 this validation. No RNG workaround is silently applied to the default path.
 
+### Run an offline Accelerate dropout example
+
+```bash
+pip install . accelerate torchdata torch
+python examples/accelerate_dropout_resume.py --path stateful --artifacts-dir evidence
+resumecheck replay evidence
+python examples/accelerate_dropout_resume.py --path boundary
+python examples/accelerate_dropout_resume.py --path skip
+python examples/accelerate_dropout_resume.py --path skip --without-loader-isolation
+python examples/accelerate_dropout_resume.py --path boundary --without-sampler-workaround
+```
+
+This input-dependent dropout MLP takes 19 SGD steps over fixed synthetic data,
+checkpoints after step3 (mid-epoch) or step8 (boundary), and compares exact
+post-step model-state fingerprints. Nothing is downloaded. The example
+explicitly selects separate loader RNG and the documented caller sampler
+workaround where needed. Removing loader isolation exits1 on model-state
+divergence. Removing the boundary/skip sampler workaround exits1 on changed
+training data at step9. Completed evidence can be replayed with saved settings.
+This is CPU-only, single-process, no workers or stochastic dataset transforms,
+and does not guarantee arbitrary application/optimizer state restoration.
+
 ### Accelerate model-state evidence
 
 Both Accelerate adapters accept `record_model_state=True` to retain exact
