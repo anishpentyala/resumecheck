@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Union
 
 from .compare import CompareReport
-from .recorder import Trajectory
+from .recorder import Trajectory, step_to_dict
 
 
 def validate_artifacts_dir(path: Union[str, Path]) -> Path:
@@ -46,16 +46,21 @@ def save_comparison_artifacts(
     }
     payloads = {
         name: json.dumps({'name': trajectory.name, 'meta': trajectory.meta,
-                          'steps': [asdict(record) for record in trajectory.steps]}, indent=2)
+                          'steps': [step_to_dict(record) for record in trajectory.steps]}, indent=2)
         for name, trajectory in trajectories.items()
     }
     payloads['report.json'] = json.dumps(asdict(report), indent=2)
+    has_model_state = any(record.model_fingerprint is not None
+                          for trajectory in trajectories.values() for record in trajectory.steps)
+    comparison = {'rtol': rtol, 'atol': atol, 'check_loss': True,
+                  'check_batch': True, 'check_grad_norm': True, 'allow_partial': False}
+    if has_model_state:
+        comparison['check_model_state'] = True
     manifest = json.dumps({
-        'schema_version': 1,
+        'schema_version': 2 if has_model_state else 1,
         'kind': 'resumecheck.comparison',
         'files': list(payloads),
-        'comparison': {'rtol': rtol, 'atol': atol, 'check_loss': True,
-                       'check_batch': True, 'check_grad_norm': True, 'allow_partial': False},
+        'comparison': comparison,
         'scope': 'Recorded observables only; not a model checkpoint or general resume guarantee.',
     }, indent=2)
     destination.mkdir(mode=0o700)  # Atomic non-overwrite check, including symlinks.
@@ -85,7 +90,7 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
     manifest = json.loads((directory / 'manifest.json').read_text())
     if not isinstance(manifest, dict):
         raise ValueError('artifact manifest must be an object')
-    if type(manifest.get('schema_version')) is not int or manifest['schema_version'] != 1:
+    if type(manifest.get('schema_version')) is not int or manifest['schema_version'] not in (1, 2):
         raise ValueError('unsupported artifact schema version')
     if manifest.get('kind') != 'resumecheck.comparison':
         raise ValueError('unsupported artifact kind')
@@ -94,6 +99,8 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
         raise ValueError('artifact manifest must name the fixed comparison files in order')
     settings = manifest.get('comparison')
     required = {'rtol', 'atol', 'check_loss', 'check_batch', 'check_grad_norm', 'allow_partial'}
+    if manifest['schema_version'] == 2:
+        required.add('check_model_state')
     if not isinstance(settings, dict) or set(settings) != required:
         raise ValueError('artifact comparison settings are missing or unsupported')
     for key in ('rtol', 'atol'):
@@ -108,6 +115,8 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
     for key in ('check_loss', 'check_batch', 'check_grad_norm', 'allow_partial'):
         if type(settings[key]) is not bool:
             raise ValueError(f'artifact {key} must be boolean')
+    if manifest['schema_version'] == 2 and settings['check_model_state'] is not True:
+        raise ValueError('schema 2 requires model-state comparisons')
     # Schema 1 is exported by the full adapter comparison, never a partial or
     # disabled-field check. Reject settings edits that silently weaken scope.
     if not all(settings[key] for key in ('check_loss', 'check_batch', 'check_grad_norm')) or settings['allow_partial']:
@@ -117,5 +126,12 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
     saved = json.loads((directory / 'report.json').read_text())
     if not isinstance(saved, dict) or type(saved.get('passed')) is not bool:
         raise ValueError('artifact report is missing or malformed')
-    return compare_trajectories(Trajectory.load(directory / 'uninterrupted.json'),
-                                Trajectory.load(directory / 'resumed.json'), **settings)
+    full = Trajectory.load(directory / 'uninterrupted.json')
+    resumed = Trajectory.load(directory / 'resumed.json')
+    state_recorded = any(record.model_fingerprint is not None for trajectory in (full, resumed)
+                         for record in trajectory.steps)
+    if manifest['schema_version'] == 1 and state_recorded:
+        raise ValueError('model-state evidence requires schema 2')
+    if manifest['schema_version'] == 2 and not state_recorded:
+        raise ValueError('schema 2 has no recorded model-state evidence')
+    return compare_trajectories(full, resumed, **settings)
