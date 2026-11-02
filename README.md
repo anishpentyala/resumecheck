@@ -142,11 +142,14 @@ configurations. Accumulation2/3 are exercised in the HF CI job.
 
 ### Retain evidence after an adapter check
 
-For small deterministic CPU HF checks, opt into exact model-state evidence:
+For small deterministic CPU HF or Lightning checks, opt into exact model-state evidence:
 
 ```python
 report = check_hf(model_factory, dataset, max_steps=12, resume_at=5,
                   record_model_state=True, artifacts_dir="./state-evidence")
+# Lightning accepts the same opt-in flag:
+report = check_lightning(module_factory, datamodule_factory, max_steps=12, resume_at=5,
+                         record_model_state=True, artifacts_dir="./lightning-state-evidence")
 ```
 
 This hashes `model.state_dict()` after each optimizer step, including parameters
@@ -159,8 +162,11 @@ is opt-in and intended for small diagnostic models, not production throughput.
 Unsupported custom state raises rather than being silently dropped. It does not
 directly verify optimizer, scheduler, RNG, nonpersistent buffers, GPU/distributed
 state, or arbitrary custom checkpoint behavior. Hashes are diagnostic evidence,
-not collision-proof attestations. Default HF checks and the other adapters do
-not record model-state fingerprints.
+not collision-proof attestations. Default checks do not record model-state
+fingerprints; the Accelerate adapters do not yet offer this option. Lightning
+samples after the final batch in each optimizer window. This does not make
+stochastic training deterministic or restore RNG state that the underlying
+checkpoint path does not preserve.
 
 Model-state artifact bundles use schema 2 and require this check on replay.
 Older resumecheck versions reject schema 2 rather than silently ignoring the
@@ -233,7 +239,7 @@ of being sorted into apparent parity. Nonconsecutive increasing IDs are allowed.
 ## What a PASS means — and what it does not
 
 - Parity covers what is recorded: losses, batch content fingerprints, gradient
-  norms, and opt-in HF model-state fingerprints. Optimizer/RNG/sampler/worker
+  norms, and opt-in HF/Lightning model-state fingerprints. Optimizer/RNG/sampler/worker
   state matter only insofar as they change
   those observables.
 - A PASS means *"these observables matched on this setup"*, not *"resume is

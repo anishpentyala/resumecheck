@@ -1,5 +1,9 @@
 ## Unreleased safety correction
 
+- Add opt-in Lightning model-state fingerprints at optimizer-window completion,
+  detecting loss-nullspace parameter and persistent-buffer differences. Reuse
+  schema 2 replay, preserving default observables and legacy JSON.
+
 - Validate step indices when comparing direct records or loaded JSON, not only
   during recording. Reject boolean, fractional, string and nonfinite indices;
   normalize integer-index objects without changing the caller records.
