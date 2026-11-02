@@ -21,7 +21,8 @@ Scope and limitations (read before trusting a PASS):
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Dict, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Union
 
 from .compare import CompareReport, compare_trajectories
 from .recorder import Trajectory, TrajectoryRecorder
@@ -131,6 +132,7 @@ def check_lightning(
     trainer_kwargs: Optional[Dict[str, Any]] = None,
     rtol: float = 1e-5,
     atol: float = 1e-7,
+    artifacts_dir: Optional[Union[str, Path]] = None,
 ) -> CompareReport:
     """Verify that checkpoint+resume at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run for the given factories.
@@ -146,12 +148,23 @@ def check_lightning(
     raise rather than silently dropping data. Every phase must record its exact
     requested optimizer-step range. Epoch limits or other stopping conditions
     that prevent this raise ValueError instead of certifying a shorter run.
+
+    ``artifacts_dir`` optionally retains the completed recorded trajectories,
+    report and comparison settings in a new local directory below an existing
+    parent. Existing paths are never replaced. Exceptions produce no bundle;
+    a final manifest marks completeness. These are recorded observables, not
+    model checkpoints. Review potentially sensitive evidence before sharing.
     """
     _require_lightning()
     import lightning.pytorch as pl
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
+
+    if artifacts_dir is not None:
+        from .artifacts import validate_artifacts_dir
+
+        artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
     import tempfile as _tf
     kwargs = {
@@ -223,4 +236,9 @@ def check_lightning(
     resumed = Trajectory(name="resumed", meta={"seed": seed})
     resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
 
-    return compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    if artifacts_dir is not None:
+        from .artifacts import save_comparison_artifacts
+
+        save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+    return report
