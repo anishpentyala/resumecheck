@@ -22,13 +22,24 @@ def main(argv=None) -> int:
     c.add_argument("--rtol", type=float, default=1e-5)
     c.add_argument("--atol", type=float, default=1e-7)
     c.add_argument("--no-batch", action="store_true", help="skip batch fingerprint check")
+    replay = sub.add_parser("replay", help="recompute a completed adapter evidence bundle with saved settings")
+    replay.add_argument("directory", help="local evidence directory containing the final manifest")
     args = p.parse_args(argv)
 
-    a = Trajectory.load(args.uninterrupted)
-    b = Trajectory.load(args.resumed)
-    report = compare_trajectories(
-        a, b, rtol=args.rtol, atol=args.atol, check_batch=not args.no_batch
-    )
+    try:
+        if args.command == "replay":
+            from .artifacts import replay_comparison_artifacts
+
+            report = replay_comparison_artifacts(args.directory)
+        else:
+            a = Trajectory.load(args.uninterrupted)
+            b = Trajectory.load(args.resumed)
+            report = compare_trajectories(
+                a, b, rtol=args.rtol, atol=args.atol, check_batch=not args.no_batch
+            )
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        print(f"resumecheck: could not verify comparison: {error}", file=sys.stderr)
+        return 2
     print(report.summary)
     if report.first_divergence:
         d = report.first_divergence
