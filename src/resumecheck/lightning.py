@@ -9,7 +9,8 @@ Scope and limitations (read before trusting a PASS):
 - Both phases run in the same process with the same seed; model
   initialization must be a deterministic function of the seed.
 - Parity covers what is recorded: loss values, batch content
-  fingerprints, and gradient norms. Optimizer/RNG/sampler state matter
+  fingerprints, and gradient norms. Optional exact model-state fingerprints
+  include parameters and persistent buffers. Optimizer/RNG/sampler state matter
   only insofar as they change those observables.
 - Nondeterministic kernels (some CUDA ops), multi-worker dataloader
   timing, and distributed training can produce legitimate differences
@@ -43,7 +44,8 @@ def _make_callback_cls():
     from lightning.pytorch.callbacks import Callback
 
     class RecorderCallback(Callback):
-        def __init__(self, recorder: TrajectoryRecorder) -> None:
+        def __init__(self, recorder: TrajectoryRecorder, record_model_state: bool = False) -> None:
+            self.record_model_state = record_model_state
             self.recorder = recorder
             self._pending_batch_fp: Optional[str] = None
             self._window_fingerprints = []
@@ -102,6 +104,8 @@ def _make_callback_cls():
                 grad_norm=grad_norm,
             )
             self.recorder.trajectory.steps[-1].batch_fingerprint = window_fingerprint
+            if self.record_model_state:
+                self.recorder.trajectory.steps[-1].model_fingerprint = fingerprint_tensor(pl_module.state_dict())
             self._last_optimizer_step = optimizer_step
             self._window_fingerprints = []
             self._window_losses = []
@@ -133,6 +137,7 @@ def check_lightning(
     rtol: float = 1e-5,
     atol: float = 1e-7,
     artifacts_dir: Optional[Union[str, Path]] = None,
+    record_model_state: bool = False,
 ) -> CompareReport:
     """Verify that checkpoint+resume at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run for the given factories.
@@ -149,6 +154,15 @@ def check_lightning(
     requested optimizer-step range. Epoch limits or other stopping conditions
     that prevent this raise ValueError instead of certifying a shorter run.
 
+    ``record_model_state=True`` additionally fingerprints ``pl_module.state_dict()``
+    at each completed optimizer window. Parameters and persistent buffers are
+    compared exactly, not with loss tolerances. This is opt-in because hashing
+    model state at every step can be expensive. Unsupported custom extra-state
+    values raise rather than being omitted. It does not fingerprint optimizer,
+    scheduler, RNG or nonpersistent-buffer state, and does not validate arbitrary
+    manual-optimization or distributed configurations. The default observables
+    and legacy JSON shape are unchanged.
+
     ``artifacts_dir`` optionally retains the completed recorded trajectories,
     report and comparison settings in a new local directory below an existing
     parent. Existing paths are never replaced. Exceptions produce no bundle;
@@ -157,6 +171,9 @@ def check_lightning(
     """
     _require_lightning()
     import lightning.pytorch as pl
+
+    if type(record_model_state) is not bool:
+        raise TypeError("record_model_state must be boolean")
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
@@ -185,7 +202,7 @@ def check_lightning(
     def run(name: str, steps: int, ckpt_path: Optional[str] = None) -> Trajectory:
         pl.seed_everything(seed, workers=True)
         rec = TrajectoryRecorder(name, seed=seed)
-        cb = RecorderCallback(rec)
+        cb = RecorderCallback(rec, record_model_state)
         trainer = pl.Trainer(max_steps=steps, callbacks=[cb], **kwargs)
         trainer.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt_path)
         return rec.trajectory
@@ -220,7 +237,7 @@ def check_lightning(
     with tempfile.TemporaryDirectory() as tmp:
         pl.seed_everything(seed, workers=True)
         rec_a = TrajectoryRecorder("pre-crash", seed=seed)
-        cb_a = RecorderCallback(rec_a)
+        cb_a = RecorderCallback(rec_a, record_model_state)
         trainer_a = pl.Trainer(max_steps=max_steps, callbacks=[cb_a, StopAtCallback(resume_at)], **kwargs)
         trainer_a.fit(module_factory(), datamodule_factory())
         _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
@@ -228,7 +245,7 @@ def check_lightning(
         trainer_a.save_checkpoint(ckpt)
 
         rec_b = TrajectoryRecorder("resumed", seed=seed)
-        cb_b = RecorderCallback(rec_b)
+        cb_b = RecorderCallback(rec_b, record_model_state)
         trainer_b = pl.Trainer(max_steps=max_steps, callbacks=[cb_b], **kwargs)
         trainer_b.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt)
         _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
