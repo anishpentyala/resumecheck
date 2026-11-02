@@ -174,6 +174,15 @@ if the recorded resumed trajectory does not match. It is a CPU smoke example,
 not pretrained-model training, a quality benchmark or a guarantee for other
 configurations. Accumulation2/3 are exercised in the HF CI job.
 
+### Temporary training outputs
+
+HF and Lightning adapters remove their internally created training-output
+folders after returning or raising. This includes default temporary checkpoint
+outputs. Explicit `artifacts_dir` evidence is separate and remains available
+for replay. Caller-selected `training_args_kwargs["output_dir"]` or
+`trainer_kwargs["default_root_dir"]` directories are never removed by this
+cleanup. A killed process can still leave temporary output behind.
+
 ### Retain evidence after an adapter check
 
 For small deterministic CPU HF, Lightning or Accelerate checks, opt into exact model-state evidence:
