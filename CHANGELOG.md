@@ -186,3 +186,7 @@
   lightning 2.6.6 (30 passed, 1 skipped, 1 xfailed) and master
   2.7.0.dev0 + #22080 patch (30 passed, 2 skipped).
 - README now states the validated upstream versions and the gate design.
+
+- HF Trainer: record gradient-accumulation optimizer windows without losing
+  intermediate microbatch fingerprints; require complete requested phases and
+  exclude evaluation from training records.
