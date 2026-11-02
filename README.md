@@ -274,6 +274,14 @@ unsupported tensor representations are not made supported by this fallback.
 
 ## Fingerprint compatibility
 
+Dictionary key ordering keeps the historical string sort and uses typed key
+encoding to break ties such as `1` versus `"1"`. Distinct typed keys with the
+same display text no longer make a batch depend on insertion order. Existing
+fingerprints without such ties stay unchanged. Regenerate both trajectories
+when comparing batches with tied key display strings across this change;
+older stored fingerprints are not rewritten. This does not normalize arbitrary
+Python objects or promise collision-free fingerprints.
+
 New batch fingerprints use a `v2:` prefix and encode container sizes and
 list/tuple type. Older unversioned fingerprints omitted container boundaries:
 for example, `[[1], 2]` and `[[1, 2]]` could share the same fingerprint.

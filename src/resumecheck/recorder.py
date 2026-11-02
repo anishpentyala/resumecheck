@@ -83,7 +83,23 @@ def fingerprint_tensor(obj: Any) -> str:
                 pass
         if isinstance(x, dict):
             emit(b"dict", str(len(x)).encode())
-            for k in sorted(x, key=str):
+            from collections import Counter
+            display = {key: str(key) for key in x}
+            display_counts = Counter(display.values())
+
+            def key_order(key):
+                # Preserve the historical string order, but resolve equal
+                # display strings using the same typed encoding as the key.
+                # Insertion order must not distinguish equal dictionaries.
+                if display_counts[display[key]] == 1:
+                    return display[key], b""
+                start = len(parts)
+                walk(key)
+                encoded = b"".join(parts[start:])
+                del parts[start:]
+                return display[key], encoded
+
+            for k in sorted(x, key=key_order):
                 walk(k)
                 walk(x[k])
             return
@@ -200,4 +216,4 @@ class TrajectoryRecorder:
                 grad_norm=None if grad_norm is None else float(grad_norm),
                 extras={k: float(v) for k, v in extras.items()},
             )
-        )
+    )
