@@ -61,7 +61,7 @@ def test_incomplete_bundle_fails_closed(bundle, file, capsys):
 
 
 @pytest.mark.parametrize('field,value', [
-    ('schema_version', 2), ('schema_version', True), ('kind', 'other'),
+    ('schema_version', 3), ('schema_version', True), ('kind', 'other'),
     ('files', ['../secret', 'resumed.json', 'report.json']),
     ('files', ['uninterrupted.json', 'resumed.json']),
     ('comparison', {}), ('comparison', None),
@@ -119,3 +119,52 @@ def test_original_compare_command_still_accepts_two_files(bundle, capsys):
     assert main(['compare', str(path / 'uninterrupted.json'), str(path / 'resumed.json')]) == 1
     assert main(['replay', str(path)]) == 0
     assert 'PASS' in capsys.readouterr().out
+
+
+@pytest.fixture
+def state_bundle(tmp_path):
+    from resumecheck.recorder import StepRecord, Trajectory
+    a = Trajectory('a', [StepRecord(1, loss=1., model_fingerprint='v2:abc')])
+    b = Trajectory('b', [StepRecord(1, loss=1., model_fingerprint='v2:abc')])
+    path = tmp_path / 'state-evidence'
+    save_comparison_artifacts(path, a, b, compare_trajectories(a,b), rtol=1e-5, atol=1e-7)
+    return path
+
+
+def test_state_schema_exact_replay(state_bundle, capsys):
+    manifest = json.loads((state_bundle/'manifest.json').read_text())
+    assert manifest['schema_version'] == 2
+    assert manifest['comparison']['check_model_state'] is True
+    assert main(['replay', str(state_bundle)]) == 0
+    assert 'model-state fingerprints match exactly' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('kind', ['downgrade', 'disable', 'missing-setting', 'missing-evidence', 'one-sided', 'different', 'unsupported'])
+def test_state_replay_cannot_drop_or_ignore_evidence(state_bundle, kind):
+    mf = state_bundle/'manifest.json'
+    manifest = json.loads(mf.read_text())
+    if kind == 'downgrade':
+        manifest['schema_version'] = 1
+        del manifest['comparison']['check_model_state']
+    elif kind == 'disable':
+        manifest['comparison']['check_model_state'] = False
+    elif kind == 'missing-setting':
+        del manifest['comparison']['check_model_state']
+    for name in ('uninterrupted.json','resumed.json'):
+        file = state_bundle/name
+        data = json.loads(file.read_text())
+        if kind == 'missing-evidence' or (kind == 'one-sided' and name == 'resumed.json'):
+            del data['steps'][0]['model_fingerprint']
+        if kind == 'different' and name == 'resumed.json':
+            data['steps'][0]['model_fingerprint'] = 'v2:def'
+        if kind == 'unsupported':
+            data['steps'][0]['model_fingerprint'] = 'legacy'
+        file.write_text(json.dumps(data))
+    mf.write_text(json.dumps(manifest))
+    assert main(['replay', str(state_bundle)]) == (1 if kind in ('one-sided','different','unsupported') else 2)
+
+
+def test_default_bundle_keeps_schema_and_legacy_step_keys(bundle):
+    path,_ = bundle()
+    assert json.loads((path/'manifest.json').read_text())['schema_version'] == 1
+    assert 'model_fingerprint' not in json.loads((path/'uninterrupted.json').read_text())['steps'][0]
