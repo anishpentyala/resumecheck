@@ -58,6 +58,7 @@ def compare_trajectories(
     check_batch: bool = True,
     check_grad_norm: bool = True,
     allow_partial: bool = False,
+    check_model_state: bool = True,
 ) -> CompareReport:
     """Compare step-by-step. The first field to exceed tolerance at the
     earliest step is reported as the divergence - that step is where resume
@@ -100,8 +101,11 @@ def compare_trajectories(
             f"step count differs: {len(a)} vs {len(b)} (compared first {n})"
         )
 
+    state_expected = check_model_state and any(record.model_fingerprint is not None for record in a + b)
     one_sided: set = set()
-    if not any((check_loss, check_batch, check_grad_norm)):
+    if not any((check_loss, check_batch, check_grad_norm)) and not (
+        state_expected
+    ):
         missing.append("no checks enabled")
 
     for i in range(n):
@@ -124,6 +128,7 @@ def compare_trajectories(
             ("loss", check_loss),
             ("batch_fingerprint", check_batch),
             ("grad_norm", check_grad_norm),
+            ("model_fingerprint", check_model_state),
         )
         if not any(
             enabled and getattr(sa, name) is not None and getattr(sb, name) is not None
@@ -162,6 +167,25 @@ def compare_trajectories(
                     ),
                     missing_fields=missing,
                     summary=f"DIVERGED at step {sa.step}: different training data consumed",
+                )
+        if check_model_state:
+            fingerprints = (sa.model_fingerprint, sb.model_fingerprint)
+            if state_expected and all(fp is None for fp in fingerprints):
+                missing.append(f"model_fingerprint missing in both runs at step {sa.step}")
+            if any(fp is not None and (not isinstance(fp, str) or not fp.startswith("v2:")) for fp in fingerprints):
+                if "model_fingerprint" not in one_sided:
+                    one_sided.add("model_fingerprint")
+                    missing.append("model_fingerprint must use the supported v2 content encoding")
+            if (sa.model_fingerprint is None) != (sb.model_fingerprint is None):
+                missing.append(f"model_fingerprint recorded in only one run at step {sa.step}")
+            elif sa.model_fingerprint is not None and sa.model_fingerprint != sb.model_fingerprint:
+                return CompareReport(
+                    passed=False, steps_compared=i,
+                    first_divergence=Divergence(
+                        step=sa.step, field="model_state", value_a=None, value_b=None,
+                        detail="model-state content fingerprints differ (exact-bit comparison)",
+                    ), missing_fields=missing,
+                    summary=f"DIVERGED at step {sa.step}: model state differs",
                 )
         for fname, sa_v, sb_v in (
             ("loss", sa.loss if check_loss else None, sb.loss if check_loss else None),
@@ -204,6 +228,7 @@ def compare_trajectories(
     if passed:
         summary = (
             f"PASS: {n} steps identical within rtol={rtol}, atol={atol}"
+            + ("; model-state fingerprints match exactly" if state_expected else "")
             + (f" (warnings: {'; '.join(missing)})" if missing else "")
         )
     else:
