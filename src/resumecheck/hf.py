@@ -147,89 +147,90 @@ def check_hf(
 
         artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
-    base_args: Dict[str, Any] = {
-        "output_dir": tempfile.mkdtemp(prefix="resumecheck-hf-"),
-        "max_steps": max_steps,
-        "per_device_train_batch_size": 2,
-        "seed": seed,
-        "full_determinism": True,
-        "use_cpu": True,
-        "report_to": [],
-        "disable_tqdm": True,
-        "logging_steps": 10**9,
-        "save_strategy": "no",
-        "gradient_accumulation_steps": 1,
-        "dataloader_num_workers": 0,
-    }
-    if training_args_kwargs:
-        base_args.update(training_args_kwargs)
+    with tempfile.TemporaryDirectory(prefix="resumecheck-hf-") as output_root:
+        base_args: Dict[str, Any] = {
+            "output_dir": output_root,
+            "max_steps": max_steps,
+            "per_device_train_batch_size": 2,
+            "seed": seed,
+            "full_determinism": True,
+            "use_cpu": True,
+            "report_to": [],
+            "disable_tqdm": True,
+            "logging_steps": 10**9,
+            "save_strategy": "no",
+            "gradient_accumulation_steps": 1,
+            "dataloader_num_workers": 0,
+        }
+        if training_args_kwargs:
+            base_args.update(training_args_kwargs)
 
-    def run(name: str, steps: int) -> Trajectory:
-        set_seed(seed)
-        rec = TrajectoryRecorder(name, seed=seed)
-        RecordingTrainer = _make_trainer_cls(rec, record_model_state=True) if record_model_state else _make_trainer_cls(rec)
-        args_dict = dict(base_args, max_steps=steps)
-        trainer = RecordingTrainer(
-            model=model_factory(),
-            args=TrainingArguments(**args_dict),
-            train_dataset=train_dataset,
-        )
-        trainer.train()
-        return rec.trajectory
+        def run(name: str, steps: int) -> Trajectory:
+            set_seed(seed)
+            rec = TrajectoryRecorder(name, seed=seed)
+            RecordingTrainer = _make_trainer_cls(rec, record_model_state=True) if record_model_state else _make_trainer_cls(rec)
+            args_dict = dict(base_args, max_steps=steps)
+            trainer = RecordingTrainer(
+                model=model_factory(),
+                args=TrainingArguments(**args_dict),
+                train_dataset=train_dataset,
+            )
+            trainer.train()
+            return rec.trajectory
 
-    full = run("uninterrupted", max_steps)
-    _require_phase_steps(full, 1, max_steps, "uninterrupted")
+        full = run("uninterrupted", max_steps)
+        _require_phase_steps(full, 1, max_steps, "uninterrupted")
 
-    from transformers import TrainerCallback
+        from transformers import TrainerCallback
 
-    class _StopAt(TrainerCallback):
-        """Simulate a crash: stop training after step ``stop_at``."""
+        class _StopAt(TrainerCallback):
+            """Simulate a crash: stop training after step ``stop_at``."""
 
-        def __init__(self, stop_at: int) -> None:
-            self.stop_at = stop_at
+            def __init__(self, stop_at: int) -> None:
+                self.stop_at = stop_at
 
-        def on_step_end(self, args, state, control, **kwargs):
-            if state.global_step >= self.stop_at:
-                control.should_training_stop = True
-            return control
+            def on_step_end(self, args, state, control, **kwargs):
+                if state.global_step >= self.stop_at:
+                    control.should_training_stop = True
+                return control
 
-    with tempfile.TemporaryDirectory() as tmp:
-        set_seed(seed)
-        rec_a = TrajectoryRecorder("pre-crash", seed=seed)
-        RecordingTrainer = _make_trainer_cls(rec_a, record_model_state=True) if record_model_state else _make_trainer_cls(rec_a)
-        # configured for the FINAL max_steps so scheduler/training plan match
-        # the uninterrupted run; only the stop is early
-        args_a = TrainingArguments(
-            **dict(base_args, output_dir=tmp, max_steps=max_steps,
-                   save_strategy="steps", save_steps=resume_at, save_total_limit=1)
-        )
-        trainer_a = RecordingTrainer(
-            model=model_factory(), args=args_a, train_dataset=train_dataset,
-            callbacks=[_StopAt(resume_at)],
-        )
-        trainer_a.train()
-        _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
-        import glob, os
+        with tempfile.TemporaryDirectory() as tmp:
+            set_seed(seed)
+            rec_a = TrajectoryRecorder("pre-crash", seed=seed)
+            RecordingTrainer = _make_trainer_cls(rec_a, record_model_state=True) if record_model_state else _make_trainer_cls(rec_a)
+            # configured for the FINAL max_steps so scheduler/training plan match
+            # the uninterrupted run; only the stop is early
+            args_a = TrainingArguments(
+                **dict(base_args, output_dir=tmp, max_steps=max_steps,
+                       save_strategy="steps", save_steps=resume_at, save_total_limit=1)
+            )
+            trainer_a = RecordingTrainer(
+                model=model_factory(), args=args_a, train_dataset=train_dataset,
+                callbacks=[_StopAt(resume_at)],
+            )
+            trainer_a.train()
+            _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
+            import glob, os
 
-        ckpts = glob.glob(os.path.join(tmp, "checkpoint-*"))
-        assert ckpts, f"no checkpoint saved at step {resume_at} in {tmp}"
+            ckpts = glob.glob(os.path.join(tmp, "checkpoint-*"))
+            assert ckpts, f"no checkpoint saved at step {resume_at} in {tmp}"
 
-        rec_b = TrajectoryRecorder("resumed", seed=seed)
-        RecordingTrainerB = _make_trainer_cls(rec_b, record_model_state=True) if record_model_state else _make_trainer_cls(rec_b)
-        trainer_b = RecordingTrainerB(
-            model=model_factory(),
-            args=TrainingArguments(**dict(base_args, max_steps=max_steps)),
-            train_dataset=train_dataset,
-        )
-        trainer_b.train(resume_from_checkpoint=ckpts[0])
-        _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
+            rec_b = TrajectoryRecorder("resumed", seed=seed)
+            RecordingTrainerB = _make_trainer_cls(rec_b, record_model_state=True) if record_model_state else _make_trainer_cls(rec_b)
+            trainer_b = RecordingTrainerB(
+                model=model_factory(),
+                args=TrainingArguments(**dict(base_args, max_steps=max_steps)),
+                train_dataset=train_dataset,
+            )
+            trainer_b.train(resume_from_checkpoint=ckpts[0])
+            _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
 
-    resumed = Trajectory(name="resumed", meta={"seed": seed})
-    resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
+        resumed = Trajectory(name="resumed", meta={"seed": seed})
+        resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
 
-    report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
-    if artifacts_dir is not None:
-        from .artifacts import save_comparison_artifacts
+        report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+        if artifacts_dir is not None:
+            from .artifacts import save_comparison_artifacts
 
-        save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
-    return report
+            save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+        return report
