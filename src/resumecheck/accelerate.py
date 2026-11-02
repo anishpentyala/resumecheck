@@ -50,6 +50,7 @@ def check_accelerate(
     boundary_set_epoch_workaround: bool = False,
     num_workers: int = 0,
     artifacts_dir: Optional[Union[str, Path]] = None,
+    record_model_state: bool = False,
 ) -> CompareReport:
     """Verify that save_state+load_state at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -78,6 +79,12 @@ def check_accelerate(
     the mitigation is only verified at exact epoch boundaries, so the flag
     requires ``resume_at`` to be an exact multiple of the steps per epoch.
 
+    ``record_model_state=True`` additionally fingerprints the unwrapped model's
+    full ``state_dict()`` after each optimizer step, including buffers. This
+    exact-bit evidence can catch state changes hidden by equal losses. It is
+    opt-in because copying and hashing model state is expensive; it does not
+    verify optimizer or arbitrary application state.
+
     ``artifacts_dir`` optionally retains the completed recorded trajectories,
     report and comparison settings in a new local directory below an existing
     parent. Existing paths are never replaced. Exceptions produce no bundle;
@@ -87,6 +94,8 @@ def check_accelerate(
     from .validation import validate_step_limits
 
     max_steps, resume_at = validate_step_limits(max_steps, resume_at)
+    if type(record_model_state) is not bool:
+        raise TypeError("record_model_state must be boolean")
     _require_accelerate()
     import tempfile
 
@@ -165,6 +174,10 @@ def check_accelerate(
                 step += 1
                 rec.record(step=step, loss=float(loss.detach().cpu()))
                 rec.trajectory.steps[-1].batch_fingerprint = batch_fp
+                if record_model_state:
+                    rec.trajectory.steps[-1].model_fingerprint = fingerprint_tensor(
+                        accelerator.unwrap_model(model).state_dict()
+                    )
                 if stop_and_save_at is not None and step >= stop_and_save_at:
                     accelerator.save_state(save_dir)
                     done = True
@@ -193,6 +206,7 @@ def check_accelerate(
             batch_fingerprint=s.batch_fingerprint,
             grad_norm=s.grad_norm,
             extras=s.extras,
+            model_fingerprint=s.model_fingerprint,
         )
         for s in post.steps
     ]
@@ -218,6 +232,7 @@ def check_accelerate_skip_path(
     atol: float = 1e-7,
     skip_path_set_epoch_workaround: bool = False,
     artifacts_dir: Optional[Union[str, Path]] = None,
+    record_model_state: bool = False,
 ) -> CompareReport:
     """Verify the documented ``skip_first_batches`` resume path: run to
     ``resume_at``, ``save_state``, then ``load_state`` and resume with
@@ -238,6 +253,12 @@ def check_accelerate_skip_path(
     epoch. Caller-side mitigation, not an upstream fix; the raw check is
     unchanged by it.
 
+    ``record_model_state=True`` additionally fingerprints the unwrapped model's
+    full ``state_dict()`` after each optimizer step, including buffers. This
+    exact-bit evidence can catch state changes hidden by equal losses. It is
+    opt-in because copying and hashing model state is expensive; it does not
+    verify optimizer or arbitrary application state.
+
     ``artifacts_dir`` optionally retains the completed recorded trajectories,
     report and comparison settings in a new local directory below an existing
     parent. Existing paths are never replaced. Exceptions produce no bundle;
@@ -247,6 +268,8 @@ def check_accelerate_skip_path(
     from .validation import validate_step_limits
 
     max_steps, resume_at = validate_step_limits(max_steps, resume_at)
+    if type(record_model_state) is not bool:
+        raise TypeError("record_model_state must be boolean")
     _require_accelerate()
     import tempfile
 
@@ -334,6 +357,10 @@ def check_accelerate_skip_path(
                 step += 1
                 rec.record(step=step, loss=float(loss.detach().cpu()))
                 rec.trajectory.steps[-1].batch_fingerprint = batch_fp
+                if record_model_state:
+                    rec.trajectory.steps[-1].model_fingerprint = fingerprint_tensor(
+                        accelerator.unwrap_model(model).state_dict()
+                    )
                 if stop_and_save_at is not None and step >= stop_and_save_at:
                     accelerator.save_state(save_dir)
                     done = True
@@ -363,6 +390,7 @@ def check_accelerate_skip_path(
             batch_fingerprint=s.batch_fingerprint,
             grad_norm=s.grad_norm,
             extras=s.extras,
+            model_fingerprint=s.model_fingerprint,
         )
         for s in post.steps
     ]
