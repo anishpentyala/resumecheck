@@ -147,14 +147,18 @@ Pass `artifacts_dir="./new-evidence"` to `check_hf`, `check_lightning`,
 
 ```bash
 python examples/accumulated_gpt2.py --accumulation 3 --artifacts-dir ./new-evidence
-resumecheck compare ./new-evidence/uninterrupted.json ./new-evidence/resumed.json
+resumecheck replay ./new-evidence
 ```
 
 The directory must not already exist, and its parent must exist. After a
 completed comparison, including a divergent result, it contains both recorded
 trajectories, `report.json`, and `manifest.json` with the comparison settings.
-For nondefault tolerances, use the manifest's `rtol` and `atol` as the compare
-CLI flags to replay the same check. The manifest is written last; without it a
+`resumecheck replay` uses the manifest's exact comparison settings, requires
+the completion manifest and fixed files, and recomputes the result instead of
+trusting a saved PASS. Exit codes are 0 for matching recorded observables, 1
+for divergence or an unverified comparison, and 2 for malformed or incomplete
+input. It is a replay of local evidence, not authentication of its origin.
+The two-file `compare` command remains available for manual recordings. The manifest is written last; without it a
 bundle is incomplete. Training exceptions do not produce a bundle. Existing
 paths are never replaced, including a path created while training runs. Export
 errors propagate instead of silently discarding evidence.
