@@ -85,4 +85,4 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest accelerate==1.15.0 torchdata==0.11.0
-      - run: python -m pytest tests/test_accelerate_parity.py tests/test_accelerate_artifacts.py tests/test_accelerate_model_state.py tests/test_accelerate_loader_rng.py tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[accelerate] tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[skip] -q
+      - run: python -m pytest tests/test_accelerate_parity.py tests/test_accelerate_artifacts.py tests/test_accelerate_model_state.py tests/test_accelerate_loader_rng.py tests/test_accelerate_dropout_example.py tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[accelerate] tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[skip] -q
