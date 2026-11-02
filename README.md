@@ -129,6 +129,14 @@ real crash-and-resume. Resuming with a different total than the original run
 changes the schedule by design — that is a different experiment, not a resume
 bug.
 
+## Integer experiment limits
+
+All adapters require `max_steps` and `resume_at` to implement Python's integer
+index protocol, with `0 < resume_at < max_steps`. Booleans, floats (including
+integral-looking values), strings and nonfinite values are rejected before
+training or artifact creation. Integer-index objects are normalized to built-in
+integers. Fractional limits are never silently rounded into a different experiment.
+
 ## Lightning phase completeness
 
 The Lightning adapter requires every phase to record its exact requested
