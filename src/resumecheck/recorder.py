@@ -30,7 +30,7 @@ def fingerprint_tensor(obj: Any) -> str:
 
     def walk(x: Any) -> None:
         if hasattr(x, "detach"):  # torch.Tensor
-            tensor = x.detach().cpu().contiguous()
+            tensor = x.detach().cpu().resolve_conj().resolve_neg().contiguous()
             try:
                 arr = tensor.numpy()
             except TypeError:
