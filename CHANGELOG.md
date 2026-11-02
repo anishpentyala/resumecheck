@@ -1,5 +1,9 @@
 ## Unreleased safety correction
 
+- Validate step indices when comparing direct records or loaded JSON, not only
+  during recording. Reject boolean, fractional, string and nonfinite indices;
+  normalize integer-index objects without changing the caller records.
+
 - Both Accelerate adapter paths now fingerprint batches before forward,
   preserving consumed input evidence when models mutate input tensors.
 
