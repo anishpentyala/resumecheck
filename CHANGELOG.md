@@ -1,5 +1,8 @@
 ## Unreleased safety correction
 
+- Validate adapter experiment limits using the integer-index protocol before
+  training; never round fractional limits or treat booleans as step counts.
+
 - Add a runnable manual CPU checkpoint example with independent model, AdamW,
   scheduler, RNG and sampler omission controls, plus replayable evidence.
 
