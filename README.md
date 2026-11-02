@@ -26,6 +26,12 @@ Integer-like indices are normalized for comparison without changing caller
 records. Indices must still be strictly increasing. Invalid records anywhere
 in either run fail even when partial-prefix comparison is requested.
 
+Present batch or model-state fingerprints must be strings with the supported
+`v2:` prefix when their check is enabled. Malformed types fail the comparison
+instead of raising or being treated as absent. Caller-supplied versioned labels
+remain accepted; replay does not authenticate their provenance or validate
+that a fingerprint was produced by the recorder.
+
 Raw-byte providers without both `dtype` and `shape` metadata (including
 `array.array` and `memoryview`) are rejected rather than silently discarding
 element types or shape. Convert them explicitly to supported arrays or native
