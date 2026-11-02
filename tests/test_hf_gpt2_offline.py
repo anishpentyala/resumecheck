@@ -49,3 +49,12 @@ def test_offline_example_writes_replayable_artifacts(example, tmp_path):
                                   Trajectory.load(directory / 'resumed.json'), **manifest['comparison'])
     assert report.passed
     assert asdict(report) == json.loads((directory / 'report.json').read_text())
+
+
+@pytest.mark.parametrize('accumulation', [1, 2, 3, 4])
+def test_offline_gpt2_exact_model_state(example, tmp_path, accumulation):
+    from resumecheck.artifacts import replay_comparison_artifacts
+    directory = tmp_path / 'gpt2-state'
+    assert example.main(['--accumulation', str(accumulation), '--model-state',
+                         '--artifacts-dir', str(directory)]) == 0
+    assert replay_comparison_artifacts(directory).passed
