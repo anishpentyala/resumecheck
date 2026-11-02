@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+import operator
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional
 
 from .recorder import Trajectory
@@ -75,12 +76,23 @@ def compare_trajectories(
     """
     if not math.isfinite(rtol) or not math.isfinite(atol) or rtol < 0 or atol < 0:
         raise ValueError("rtol and atol must be finite and nonnegative")
+    normalized = []
     for label, trajectory in (("uninterrupted", uninterrupted), ("resumed", resumed)):
-        if any(right.step <= left.step for left, right in zip(trajectory.steps, trajectory.steps[1:])):
+        records = []
+        for position, record in enumerate(trajectory.steps):
+            try:
+                if isinstance(record.step, bool):
+                    raise TypeError("bool is not a step index")
+                step = operator.index(record.step)
+            except TypeError:
+                detail = f"{label} record {position}: step must be an integer without coercion or truncation"
+                return CompareReport(passed=False, steps_compared=0, missing_fields=[detail], summary=f"FAIL: {detail}")
+            records.append(replace(record, step=step))
+        if any(right.step <= left.step for left, right in zip(records, records[1:])):
             detail = f"{label} step indices must be strictly increasing in recorded order"
             return CompareReport(passed=False, steps_compared=0, missing_fields=[detail], summary=f"FAIL: {detail}")
-    a = uninterrupted.steps
-    b = resumed.steps
+        normalized.append(records)
+    a, b = normalized
     n = min(len(a), len(b))
     missing: List[str] = []
     if len(a) != len(b):
@@ -101,8 +113,8 @@ def compare_trajectories(
                 first_divergence=Divergence(
                     step=min(sa.step, sb.step),
                     field="step",
-                    value_a=float(sa.step),
-                    value_b=float(sb.step),
+                    value_a=sa.step,
+                    value_b=sb.step,
                     detail="step indices misaligned between runs",
                 ),
                 missing_fields=missing,
@@ -208,4 +220,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-    )
+                                                 )
