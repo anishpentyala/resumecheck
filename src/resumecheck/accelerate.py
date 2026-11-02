@@ -84,6 +84,9 @@ def check_accelerate(
     a final manifest marks completeness. These are recorded observables, not
     model checkpoints. Review potentially sensitive evidence before sharing.
     """
+    from .validation import validate_step_limits
+
+    max_steps, resume_at = validate_step_limits(max_steps, resume_at)
     _require_accelerate()
     import tempfile
 
@@ -92,8 +95,6 @@ def check_accelerate(
 
     from accelerate import Accelerator, DataLoaderConfiguration
 
-    if not 0 < resume_at < max_steps:
-        raise ValueError("resume_at must be in (0, max_steps)")
 
     if artifacts_dir is not None:
         from .artifacts import validate_artifacts_dir
@@ -243,6 +244,9 @@ def check_accelerate_skip_path(
     a final manifest marks completeness. These are recorded observables, not
     model checkpoints. Review potentially sensitive evidence before sharing.
     """
+    from .validation import validate_step_limits
+
+    max_steps, resume_at = validate_step_limits(max_steps, resume_at)
     _require_accelerate()
     import tempfile
 
@@ -255,8 +259,6 @@ def check_accelerate_skip_path(
         skip_first_batches,
     )
 
-    if not 0 < resume_at < max_steps:
-        raise ValueError("resume_at must be in (0, max_steps)")
 
     if artifacts_dir is not None:
         from .artifacts import validate_artifacts_dir
