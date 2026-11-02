@@ -545,3 +545,31 @@ state. Equal learning rates do not prove their internal state was restored.
 Adapters do not automatically record these extras; use the manual recorder or
 previously recorded trajectory JSON. Existing adapter artifact replay keeps
 its original saved comparison scope and does not opt into extras.
+
+### Retain a manual numeric-extra comparison
+
+Manual recorders can save the selected scope for offline replay:
+
+```python
+from resumecheck.compare import compare_trajectories
+from resumecheck.artifacts import save_comparison_artifacts
+
+selected = ["lr"]
+report = compare_trajectories(full, resumed, check_extras=selected)
+save_comparison_artifacts(
+    "new-evidence-directory", full, resumed, report,
+    rtol=1e-5, atol=1e-7, check_extras=selected,
+)
+```
+
+`resumecheck replay new-evidence-directory` recomputes those selected fields
+with the saved tolerances, including missing or invalid evidence. The writer
+checks that the supplied report matches that scope before creating a directory.
+Selected names must be a list or tuple of unique, nonempty strings. Nonempty
+selection uses schema 3; omitted or empty selection keeps existing schema 1/2
+output unchanged. Older readers reject schema 3 rather than ignoring extras.
+Automatic adapter capture is unchanged. This is local recorded evidence, not a
+checkpoint, proof of provenance, tamper-proof storage, or complete optimizer or
+scheduler-state verification. A person who edits both scope and evidence can
+change what is checked. Review potentially sensitive recorded values before
+sharing. Existing destinations are never replaced.
