@@ -31,7 +31,7 @@ def _require_hf():
         ) from e
 
 
-def _make_trainer_cls(recorder: TrajectoryRecorder):
+def _make_trainer_cls(recorder: TrajectoryRecorder, record_model_state: bool = False):
     from transformers import Trainer, TrainerCallback
 
     class RecordingTrainer(Trainer):
@@ -52,6 +52,8 @@ def _make_trainer_cls(recorder: TrajectoryRecorder):
                     fp = fingerprints[0] if len(fingerprints) == 1 else fingerprint_tensor(fingerprints)
                     recorder.record(step=state.global_step, loss=sum(owner._rc_losses) / len(owner._rc_losses))
                     recorder.trajectory.steps[-1].batch_fingerprint = fp
+                    if record_model_state:
+                        recorder.trajectory.steps[-1].model_fingerprint = fingerprint_tensor(owner.model.state_dict())
                     owner._rc_fingerprints = []
                     owner._rc_losses = []
 
@@ -99,6 +101,7 @@ def check_hf(
     rtol: float = 1e-5,
     atol: float = 1e-7,
     artifacts_dir: Optional[Union[str, Path]] = None,
+    record_model_state: bool = False,
 ) -> CompareReport:
     """Verify that checkpoint+resume at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -113,6 +116,13 @@ def check_hf(
     must record its exact requested optimizer-step range; incomplete windows
     and missing phases raise instead of certifying a shorter run.
 
+    ``record_model_state=True`` additionally fingerprints ``model.state_dict()``
+    after each optimizer step. This is an exact-content check of parameters and
+    persistent buffers, independent of loss tolerances, and can detect changes
+    hidden by equal losses. It adds CPU copies and hashing work proportional to
+    model size. Unsupported custom state raises; optimizer, scheduler, RNG and
+    nonpersistent buffers are not directly checked. Deterministic CPU only.
+
     ``artifacts_dir`` optionally saves both completed trajectories, the report,
     and comparison settings for offline diagnosis. It must not exist, and its
     parent must exist. No model checkpoint is retained. The directory is only
@@ -124,6 +134,9 @@ def check_hf(
     import tempfile
 
     from transformers import TrainingArguments, set_seed
+
+    if type(record_model_state) is not bool:
+        raise TypeError("record_model_state must be boolean")
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
@@ -153,7 +166,7 @@ def check_hf(
     def run(name: str, steps: int) -> Trajectory:
         set_seed(seed)
         rec = TrajectoryRecorder(name, seed=seed)
-        RecordingTrainer = _make_trainer_cls(rec)
+        RecordingTrainer = _make_trainer_cls(rec, record_model_state=True) if record_model_state else _make_trainer_cls(rec)
         args_dict = dict(base_args, max_steps=steps)
         trainer = RecordingTrainer(
             model=model_factory(),
@@ -182,7 +195,7 @@ def check_hf(
     with tempfile.TemporaryDirectory() as tmp:
         set_seed(seed)
         rec_a = TrajectoryRecorder("pre-crash", seed=seed)
-        RecordingTrainer = _make_trainer_cls(rec_a)
+        RecordingTrainer = _make_trainer_cls(rec_a, record_model_state=True) if record_model_state else _make_trainer_cls(rec_a)
         # configured for the FINAL max_steps so scheduler/training plan match
         # the uninterrupted run; only the stop is early
         args_a = TrainingArguments(
@@ -201,7 +214,7 @@ def check_hf(
         assert ckpts, f"no checkpoint saved at step {resume_at} in {tmp}"
 
         rec_b = TrajectoryRecorder("resumed", seed=seed)
-        RecordingTrainerB = _make_trainer_cls(rec_b)
+        RecordingTrainerB = _make_trainer_cls(rec_b, record_model_state=True) if record_model_state else _make_trainer_cls(rec_b)
         trainer_b = RecordingTrainerB(
             model=model_factory(),
             args=TrainingArguments(**dict(base_args, max_steps=max_steps)),

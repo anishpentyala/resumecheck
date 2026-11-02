@@ -43,6 +43,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--accumulation', type=int, default=3,
                         help='training microbatches per optimizer step (default 3)')
+    parser.add_argument('--model-state', action='store_true',
+                        help='also fingerprint exact parameters and persistent buffers each step')
     parser.add_argument('--artifacts-dir', help='new local directory for replayable trajectory evidence')
     args = parser.parse_args(argv)
     if args.accumulation < 1:
@@ -50,7 +52,7 @@ def main(argv=None):
     torch.set_num_threads(1)
     report = check_hf(
         fresh_model, SyntheticTokens(), max_steps=4, resume_at=2, seed=99,
-        artifacts_dir=args.artifacts_dir,
+        artifacts_dir=args.artifacts_dir, record_model_state=args.model_state,
         training_args_kwargs={'per_device_train_batch_size': 2,
                               'gradient_accumulation_steps': args.accumulation},
     )

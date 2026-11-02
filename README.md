@@ -142,6 +142,32 @@ configurations. Accumulation2/3 are exercised in the HF CI job.
 
 ### Retain evidence after an adapter check
 
+For small deterministic CPU HF checks, opt into exact model-state evidence:
+
+```python
+report = check_hf(model_factory, dataset, max_steps=12, resume_at=5,
+                  record_model_state=True, artifacts_dir="./state-evidence")
+```
+
+This hashes `model.state_dict()` after each optimizer step, including parameters
+and persistent buffers. Equal loss and batch fingerprints can hide a changed
+parameter or unused buffer; this adds a separate `model_state` divergence check.
+It compares dtype, shape and content bits, not tolerance-based numeric closeness.
+`rtol` and `atol` still apply to the numeric observables, not these fingerprints.
+It adds CPU copies and hashing proportional to model size at every step, so it
+is opt-in and intended for small diagnostic models, not production throughput.
+Unsupported custom state raises rather than being silently dropped. It does not
+directly verify optimizer, scheduler, RNG, nonpersistent buffers, GPU/distributed
+state, or arbitrary custom checkpoint behavior. Hashes are diagnostic evidence,
+not collision-proof attestations. Default HF checks and the other adapters do
+not record model-state fingerprints.
+
+Model-state artifact bundles use schema 2 and require this check on replay.
+Older resumecheck versions reject schema 2 rather than silently ignoring the
+extra evidence. Default bundles remain schema 1 and omit absent model-state
+fields, preserving their legacy JSON shape. The GPT-2 example accepts
+`--model-state` to exercise this check without downloading a model.
+
 Pass `artifacts_dir="./new-evidence"` to `check_hf`, `check_lightning`,
 `check_accelerate` or `check_accelerate_skip_path`, or run:
 
@@ -165,8 +191,8 @@ errors propagate instead of silently discarding evidence.
 
 This is opt-in local output: there are no uploads and no retained model
 checkpoints. Losses, data fingerprints and metadata may be sensitive. Review
-artifacts before sharing. A replay checks the recorded observables, not model
-weights or all checkpoint state.
+artifacts before sharing. A replay checks only the evidence that was recorded. Model-state fingerprints
+are present only when explicitly enabled; no bundle verifies all checkpoint state.
 
 ## Lightning gradient accumulation
 
@@ -207,7 +233,8 @@ of being sorted into apparent parity. Nonconsecutive increasing IDs are allowed.
 ## What a PASS means — and what it does not
 
 - Parity covers what is recorded: losses, batch content fingerprints, gradient
-  norms. Optimizer/RNG/sampler/worker state matter only insofar as they change
+  norms, and opt-in HF model-state fingerprints. Optimizer/RNG/sampler/worker
+  state matter only insofar as they change
   those observables.
 - A PASS means *"these observables matched on this setup"*, not *"resume is
   correct for every configuration"*.
