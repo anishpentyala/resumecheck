@@ -51,6 +51,7 @@ def check_accelerate(
     num_workers: int = 0,
     artifacts_dir: Optional[Union[str, Path]] = None,
     record_model_state: bool = False,
+    isolate_dataloader_rng: bool = False,
 ) -> CompareReport:
     """Verify that save_state+load_state at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -79,6 +80,12 @@ def check_accelerate(
     the mitigation is only verified at exact epoch boundaries, so the flag
     requires ``resume_at`` to be an exact multiple of the steps per epoch.
 
+    ``isolate_dataloader_rng=True`` gives the loader its own seed-matched
+    Torch generator so iterator construction does not consume the model's
+    global Torch CPU RNG (for example, dropout state). This changes the
+    checked setup and does not fix the documented sampler epoch issues.
+    Default off preserves the original experiment.
+
     ``record_model_state=True`` additionally fingerprints the unwrapped model's
     full ``state_dict()`` after each optimizer step, including buffers. This
     exact-bit evidence can catch state changes hidden by equal losses. It is
@@ -96,6 +103,8 @@ def check_accelerate(
     max_steps, resume_at = validate_step_limits(max_steps, resume_at)
     if type(record_model_state) is not bool:
         raise TypeError("record_model_state must be boolean")
+    if type(isolate_dataloader_rng) is not bool:
+        raise TypeError("isolate_dataloader_rng must be boolean")
     _require_accelerate()
     import tempfile
 
@@ -152,6 +161,7 @@ def check_accelerate(
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
+            **({"generator": torch.Generator().manual_seed(seed)} if isolate_dataloader_rng else {}),
         )
         model, optimizer, dl = accelerator.prepare(model, optimizer, dl)
         if ckpt:
@@ -159,7 +169,8 @@ def check_accelerate(
         if set_epoch_on_start is not None:
             dl.set_epoch(set_epoch_on_start)
 
-        rec = TrajectoryRecorder(name, seed=seed)
+        rec = TrajectoryRecorder(name, seed=seed,
+                                 **({"isolate_dataloader_rng": True} if isolate_dataloader_rng else {}))
         model.train()
         step = 0
         done = False
@@ -210,7 +221,8 @@ def check_accelerate(
         )
         for s in post.steps
     ]
-    resumed = Trajectory(name="resumed", meta={"seed": seed})
+    resumed = Trajectory(name="resumed", meta={"seed": seed,
+                         **({"isolate_dataloader_rng": True} if isolate_dataloader_rng else {})})
     resumed.steps = pre.steps + post.steps
 
     report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
@@ -233,6 +245,7 @@ def check_accelerate_skip_path(
     skip_path_set_epoch_workaround: bool = False,
     artifacts_dir: Optional[Union[str, Path]] = None,
     record_model_state: bool = False,
+    isolate_dataloader_rng: bool = False,
 ) -> CompareReport:
     """Verify the documented ``skip_first_batches`` resume path: run to
     ``resume_at``, ``save_state``, then ``load_state`` and resume with
@@ -253,6 +266,12 @@ def check_accelerate_skip_path(
     epoch. Caller-side mitigation, not an upstream fix; the raw check is
     unchanged by it.
 
+    ``isolate_dataloader_rng=True`` gives the loader its own seed-matched
+    Torch generator so iterator construction does not consume the model's
+    global Torch CPU RNG (for example, dropout state). This changes the
+    checked setup and does not fix the documented sampler epoch issues.
+    Default off preserves the original experiment.
+
     ``record_model_state=True`` additionally fingerprints the unwrapped model's
     full ``state_dict()`` after each optimizer step, including buffers. This
     exact-bit evidence can catch state changes hidden by equal losses. It is
@@ -270,6 +289,8 @@ def check_accelerate_skip_path(
     max_steps, resume_at = validate_step_limits(max_steps, resume_at)
     if type(record_model_state) is not bool:
         raise TypeError("record_model_state must be boolean")
+    if type(isolate_dataloader_rng) is not bool:
+        raise TypeError("isolate_dataloader_rng must be boolean")
     _require_accelerate()
     import tempfile
 
@@ -324,12 +345,14 @@ def check_accelerate_skip_path(
         accelerator = Accelerator(cpu=True, dataloader_config=cfg)
         model = model_factory()
         optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-        dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
+                        **({"generator": torch.Generator().manual_seed(seed)} if isolate_dataloader_rng else {}))
         model, optimizer, dl = accelerator.prepare(model, optimizer, dl)
         if ckpt:
             accelerator.load_state(ckpt)
 
-        rec = TrajectoryRecorder(name, seed=seed)
+        rec = TrajectoryRecorder(name, seed=seed,
+                                 **({"isolate_dataloader_rng": True} if isolate_dataloader_rng else {}))
         model.train()
         step = 0
         epoch = start_epoch
@@ -394,7 +417,8 @@ def check_accelerate_skip_path(
         )
         for s in post.steps
     ]
-    resumed = Trajectory(name="resumed", meta={"seed": seed})
+    resumed = Trajectory(name="resumed", meta={"seed": seed,
+                         **({"isolate_dataloader_rng": True} if isolate_dataloader_rng else {})})
     resumed.steps = pre.steps + post.steps
 
     report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
