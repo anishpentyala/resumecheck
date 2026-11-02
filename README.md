@@ -126,6 +126,20 @@ optimizer-step range. Missing phases and incomplete windows raise rather than
 certify a shorter run. A PASS remains scoped to the recorded observables and the
 tested deterministic CPU setup, not general resume correctness.
 
+### Run an offline attention-model example
+
+```bash
+pip install -e '.[hf]'
+python examples/accumulated_gpt2.py --accumulation 3
+```
+
+This uses a small, randomly initialized GPT-2 architecture with dropout and fixed
+synthetic token IDs. No model weights, tokenizer or dataset are downloaded.
+The example runs four optimizer steps, checkpoints after two, and exits nonzero
+if the recorded resumed trajectory does not match. It is a CPU smoke example,
+not pretrained-model training, a quality benchmark or a guarantee for other
+configurations. Accumulation2/3 are exercised in the HF CI job.
+
 ## Lightning gradient accumulation
 
 The Lightning adapter records one optimizer-step window when
