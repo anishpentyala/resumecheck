@@ -122,6 +122,15 @@ class StepRecord:
     batch_fingerprint: Optional[str] = None
     grad_norm: Optional[float] = None
     extras: Dict[str, float] = field(default_factory=dict)
+    model_fingerprint: Optional[str] = None
+
+
+def step_to_dict(record: StepRecord) -> dict:
+    """Keep absent optional state evidence compatible with legacy JSON."""
+    result = asdict(record)
+    if record.model_fingerprint is None:
+        result.pop('model_fingerprint')
+    return result
 
 
 @dataclass
@@ -138,7 +147,7 @@ class Trajectory:
                 {
                     "name": self.name,
                     "meta": self.meta,
-                    "steps": [asdict(s) for s in self.steps],
+                    "steps": [step_to_dict(s) for s in self.steps],
                 },
                 indent=1,
             )
