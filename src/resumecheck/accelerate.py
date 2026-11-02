@@ -19,7 +19,8 @@ guarantee.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from pathlib import Path
+from typing import Any, Callable, Optional, Union
 
 from .compare import CompareReport, compare_trajectories
 from .recorder import Trajectory, TrajectoryRecorder, fingerprint_tensor
@@ -48,6 +49,7 @@ def check_accelerate(
     atol: float = 1e-7,
     boundary_set_epoch_workaround: bool = False,
     num_workers: int = 0,
+    artifacts_dir: Optional[Union[str, Path]] = None,
 ) -> CompareReport:
     """Verify that save_state+load_state at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -75,6 +77,12 @@ def check_accelerate(
     documented-path finding, and it is not an upstream fix. Fail-closed:
     the mitigation is only verified at exact epoch boundaries, so the flag
     requires ``resume_at`` to be an exact multiple of the steps per epoch.
+
+    ``artifacts_dir`` optionally retains the completed recorded trajectories,
+    report and comparison settings in a new local directory below an existing
+    parent. Existing paths are never replaced. Exceptions produce no bundle;
+    a final manifest marks completeness. These are recorded observables, not
+    model checkpoints. Review potentially sensitive evidence before sharing.
     """
     _require_accelerate()
     import tempfile
@@ -86,6 +94,11 @@ def check_accelerate(
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
+
+    if artifacts_dir is not None:
+        from .artifacts import validate_artifacts_dir
+
+        artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
     steps_per_epoch = -(-len(train_dataset) // batch_size)  # ceil
     if boundary_set_epoch_workaround:
@@ -185,7 +198,12 @@ def check_accelerate(
     resumed = Trajectory(name="resumed", meta={"seed": seed})
     resumed.steps = pre.steps + post.steps
 
-    return compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    if artifacts_dir is not None:
+        from .artifacts import save_comparison_artifacts
+
+        save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+    return report
 
 
 def check_accelerate_skip_path(
@@ -198,6 +216,7 @@ def check_accelerate_skip_path(
     rtol: float = 1e-5,
     atol: float = 1e-7,
     skip_path_set_epoch_workaround: bool = False,
+    artifacts_dir: Optional[Union[str, Path]] = None,
 ) -> CompareReport:
     """Verify the documented ``skip_first_batches`` resume path: run to
     ``resume_at``, ``save_state``, then ``load_state`` and resume with
@@ -217,6 +236,12 @@ def check_accelerate_skip_path(
     resumes, so the flag requires ``resume_at`` to land strictly inside an
     epoch. Caller-side mitigation, not an upstream fix; the raw check is
     unchanged by it.
+
+    ``artifacts_dir`` optionally retains the completed recorded trajectories,
+    report and comparison settings in a new local directory below an existing
+    parent. Existing paths are never replaced. Exceptions produce no bundle;
+    a final manifest marks completeness. These are recorded observables, not
+    model checkpoints. Review potentially sensitive evidence before sharing.
     """
     _require_accelerate()
     import tempfile
@@ -232,6 +257,11 @@ def check_accelerate_skip_path(
 
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
+
+    if artifacts_dir is not None:
+        from .artifacts import validate_artifacts_dir
+
+        artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
     steps_per_epoch = -(-len(train_dataset) // batch_size)  # ceil
     resume_epoch = resume_at // steps_per_epoch
@@ -337,4 +367,9 @@ def check_accelerate_skip_path(
     resumed = Trajectory(name="resumed", meta={"seed": seed})
     resumed.steps = pre.steps + post.steps
 
-    return compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+    if artifacts_dir is not None:
+        from .artifacts import save_comparison_artifacts
+
+        save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+    return report

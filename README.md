@@ -140,9 +140,10 @@ if the recorded resumed trajectory does not match. It is a CPU smoke example,
 not pretrained-model training, a quality benchmark or a guarantee for other
 configurations. Accumulation2/3 are exercised in the HF CI job.
 
-### Retain evidence after an HF check
+### Retain evidence after an adapter check
 
-Pass `artifacts_dir="./new-evidence"` to `check_hf`, or run:
+Pass `artifacts_dir="./new-evidence"` to `check_hf`, `check_lightning`,
+`check_accelerate` or `check_accelerate_skip_path`, or run:
 
 ```bash
 python examples/accumulated_gpt2.py --accumulation 3 --artifacts-dir ./new-evidence
