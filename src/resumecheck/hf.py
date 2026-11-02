@@ -130,6 +130,9 @@ def check_hf(
     exceptions propagate without a bundle. Recorded losses, fingerprints and
     metadata may be sensitive: review before sharing.
     """
+    from .validation import validate_step_limits
+
+    max_steps, resume_at = validate_step_limits(max_steps, resume_at)
     _require_hf()
     import tempfile
 
@@ -138,8 +141,6 @@ def check_hf(
     if type(record_model_state) is not bool:
         raise TypeError("record_model_state must be boolean")
 
-    if not 0 < resume_at < max_steps:
-        raise ValueError("resume_at must be in (0, max_steps)")
 
     if artifacts_dir is not None:
         from .artifacts import validate_artifacts_dir
