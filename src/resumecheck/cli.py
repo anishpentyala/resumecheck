@@ -22,6 +22,8 @@ def main(argv=None) -> int:
     c.add_argument("--rtol", type=float, default=1e-5)
     c.add_argument("--atol", type=float, default=1e-7)
     c.add_argument("--no-batch", action="store_true", help="skip batch fingerprint check")
+    c.add_argument("--extra", action="append", default=None, metavar="NAME",
+                   help="also compare this recorded numeric extra on every step (repeatable)")
     replay = sub.add_parser("replay", help="recompute a completed adapter evidence bundle with saved settings")
     replay.add_argument("directory", help="local evidence directory containing the final manifest")
     args = p.parse_args(argv)
@@ -35,7 +37,8 @@ def main(argv=None) -> int:
             a = Trajectory.load(args.uninterrupted)
             b = Trajectory.load(args.resumed)
             report = compare_trajectories(
-                a, b, rtol=args.rtol, atol=args.atol, check_batch=not args.no_batch
+                a, b, rtol=args.rtol, atol=args.atol, check_batch=not args.no_batch,
+                check_extras=args.extra
             )
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         print(f"resumecheck: could not verify comparison: {error}", file=sys.stderr)
