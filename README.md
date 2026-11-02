@@ -93,6 +93,32 @@ There is also a framework-agnostic core (`TrajectoryRecorder` +
 resumecheck compare uninterrupted.json resumed.json
 ```
 
+## Run a framework-independent checkpoint example
+
+```bash
+pip install . torch
+python examples/manual_checkpoint.py --artifacts-dir manual-evidence
+resumecheck replay manual-evidence
+python examples/manual_checkpoint.py --omit optimizer
+```
+
+This executable CPU example uses a dropout MLP, AdamW and MultiStepLR on
+synthetic data. Application code explicitly saves and restores model,
+optimizer, scheduler, Torch CPU RNG, and a fixed shuffled permutation plus
+batch cursor through an actual local checkpoint file. Nothing is downloaded.
+The all-restored run compares six steps and exact model-state fingerprints.
+`--omit model`, `optimizer`, `scheduler`, `rng` or `sampler` deliberately leaves
+one component unrestored and exits 1 when the recorded trajectories diverge.
+The scheduler control diverges after its first missed milestone, not necessarily
+at the first resumed step. Evidence bundles can be replayed with saved settings.
+
+This shows how to wire the existing manual recorder into a loop. It is not a
+checkpoint manager or a production sampler implementation. The saved file is
+created and loaded by this run; never load an untrusted checkpoint. CPU only,
+one fixed permutation, one process, no workers, Python/NumPy/CUDA RNG or
+arbitrary data pipeline restoration. A PASS covers these recorded observables,
+not every optimizer or application state.
+
 ## How the crash is simulated
 
 The interrupted run is configured for the **final** step count and then
