@@ -77,6 +77,8 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
     Only the fixed trajectory names are read; arbitrary paths in the manifest
     are not followed. The final manifest is required to reject partial bundles.
     """
+    import math
+
     from .compare import compare_trajectories
 
     directory = Path(path)
@@ -96,6 +98,12 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
         raise ValueError('artifact comparison settings are missing or unsupported')
     for key in ('rtol', 'atol'):
         if type(settings[key]) not in (int, float):
+            raise ValueError(f'artifact {key} must be a finite nonnegative number')
+        try:
+            valid = math.isfinite(settings[key]) and settings[key] >= 0
+        except OverflowError:
+            valid = False
+        if not valid:
             raise ValueError(f'artifact {key} must be a finite nonnegative number')
     for key in ('check_loss', 'check_batch', 'check_grad_norm', 'allow_partial'):
         if type(settings[key]) is not bool:
