@@ -396,6 +396,21 @@ mitigation mode (`skip_path_set_epoch_workaround=True`) applies the
 verified `set_epoch(epoch)` realignment to each post-resume epoch and
 verifies parity WITH it; fail-closed to mid-epoch resumes.
 
+### Isolate Accelerate loader iterator RNG
+
+Both own Accelerate adapters accept `isolate_dataloader_rng=True`. This gives
+the DataLoader a separate seed-matched Torch generator, so building an iterator
+after resume does not consume model/dropout CPU RNG. The default remains off:
+this is a different, explicitly selected experiment, not a claim that arbitrary
+existing training scripts resume correctly. CPU dropout-MLP checks cover two
+seeds and multiple epochs, with exact model-state evidence enabled.
+
+It does not repair sampler epoch counters. Stateful exact-boundary checks still
+need the existing `boundary_set_epoch_workaround=True`, and skip-path checks
+crossing epochs still need `skip_path_set_epoch_workaround=True`. Skip-path
+boundary resumes, workers, CUDA/distributed and stochastic datasets are outside
+this validation. No RNG workaround is silently applied to the default path.
+
 ### Accelerate model-state evidence
 
 Both Accelerate adapters accept `record_model_state=True` to retain exact
