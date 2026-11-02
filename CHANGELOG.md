@@ -1,5 +1,8 @@
 ## Unreleased safety correction
 
+- Resolve lazy conjugate and negative tensor bits before content hashing,
+  preserving logical values without changing caller tensors.
+
 - Add opt-in Lightning model-state fingerprints at optimizer-window completion,
   detecting loss-nullspace parameter and persistent-buffer differences. Reuse
   schema 2 replay, preserving default observables and legacy JSON.
