@@ -362,6 +362,15 @@ mitigation mode (`skip_path_set_epoch_workaround=True`) applies the
 verified `set_epoch(epoch)` realignment to each post-resume epoch and
 verifies parity WITH it; fail-closed to mid-epoch resumes.
 
+### Lazy conjugate and negative tensor views
+
+Batch and model-state fingerprints use logical tensor values, including lazy
+PyTorch conjugate and negative views. Fingerprinting materializes those bits
+without changing the caller's tensor, then records the existing dtype/shape/content
+encoding. A lazy view and its resolved value match; the unconjugated or unnegated
+source generally does not. This is CPU-checked for dense tensors, not sparse,
+quantized or device-specific view behavior.
+
 ## Examples
 
 `examples/tiny_gpt2_resume_parity.py` runs `check_hf` against a real
