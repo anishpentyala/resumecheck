@@ -26,6 +26,15 @@ Integer-like indices are normalized for comparison without changing caller
 records. Indices must still be strictly increasing. Invalid records anywhere
 in either run fail even when partial-prefix comparison is requested.
 
+The recorder preserves integer-index numeric observations (loss, gradient norm
+and extras) as exact integers instead of converting them to floats. This keeps
+large counter differences visible to zero-tolerance comparisons and JSON
+round trips. Other float-convertible observations keep their existing
+conversion behavior; native Python booleans are rejected without appending a
+partial step (NumPy or tensor boolean scalars keep their existing 1/0
+conversion). This cannot recover precision already lost by the caller or an
+adapter before recording.
+
 Present batch or model-state fingerprints must be strings with the supported
 `v2:` prefix when their check is enabled. Malformed types fail the comparison
 instead of raising or being treated as absent. Caller-supplied versioned labels
