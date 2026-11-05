@@ -726,3 +726,20 @@ This guards repeated empty iterations only, not a blocking iterator, slow
 model, hanging worker or general time limit. A custom loader deliberately
 empty for two whole iterations is rejected. Nonempty tiny datasets remain
 supported, and the existing documented sampler/resume limitations are unchanged.
+
+### Finite float tolerance boundaries
+
+Loss and gradient-norm comparisons now evaluate the existing rule
+`abs(a - b) <= atol + rtol * abs(b)` exactly for the represented finite
+Python numbers. Rounding in an intermediate difference, product or sum must
+not turn an out-of-tolerance pair into a PASS. This includes subnormal values
+and finite pairs with very different magnitudes, not only overflow cases.
+
+This can change a previous boundary PASS into a divergence, and a
+previous boundary divergence into a PASS; both directions move boundary
+cases onto the exact rule. Input floats
+still carry their original binary rounding; this does not recover values
+lost before recording. Existing matching-NaN and same-signed-infinity
+behavior for loss and gradient norm is unchanged. Selected extras retain
+their existing finite-value policy and exact tolerance comparisons. Exact
+rational comparison costs more CPU than rounded float arithmetic.
