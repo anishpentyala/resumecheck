@@ -594,3 +594,20 @@ hide different scheduler internals, and group reordering is not identified by na
 Metric-driven schedulers may update later at evaluation, outside this sampling
 point. No scheduler checkpoint or automatic recovery is added. The tested scope
 is deterministic CPU Trainer runs, including gradient accumulation1and3.
+
+### Machine-readable CLI reports
+
+Use `resumecheck compare full.json resumed.json --json` or
+`resumecheck replay evidence/ --json` to emit one strict JSON document to stdout.
+The versioned envelope contains `schema_version: 1`, `status` (`pass`, `fail`,
+or `error`), `passed`, `error`, and `report`. A completed `report` includes
+`steps_compared`, `first_divergence`, `missing_fields`, and `summary` as well as
+its own `passed` field. Nonfinite divergence values are strings (`NaN`,
+`Infinity`, `-Infinity`), never invalid JSON numeric literals.
+
+Exit codes remain 0 for verified matching evidence, 1 for a completed failed
+comparison, and 2 for input or verification errors. On a handled error, `report`
+is null and `passed` is false; a human-readable error also goes to stderr.
+Argument-parsing errors still use argparse's stderr/exit-2 behavior and do not
+promise JSON. Without `--json`, the existing text output is unchanged. Reports
+verify only the recorded observables, not original training or provenance.
