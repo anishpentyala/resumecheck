@@ -627,3 +627,19 @@ This detects ambiguous raw objects, not authenticity or tampering in general.
 An ordinary dictionary already lost any duplicates discarded by an earlier
 parser, so in-memory comparison cannot recover them. Replay still recomputes
 the recorded observations rather than trusting a saved report verdict.
+
+### Consistent artifact reports
+
+Before writing a new evidence directory, the artifact writer recomputes the
+full saved comparison scope and checks the supplied report's structured verdict,
+step count, divergence and missing fields against it. A stale PASS from looser
+tolerances, a disabled check or another trajectory cannot be saved alongside
+settings that replay as FAIL. Tolerances must be finite nonnegative numbers,
+not booleans or numeric strings. This applies to legacy schemas 1/2 as well as
+selected-extras schema 3; mismatches leave no new directory.
+
+The saved summary is regenerated for the stored settings, so caller wording
+cannot contradict replay. The caller's report is not modified. Valid matching
+reports keep the same schema and content. This is local consistency checking,
+not provenance, authentication or tamper-proof storage. Replay still recomputes
+from the saved trajectories and never trusts the stored PASS flag.
