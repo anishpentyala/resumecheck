@@ -149,10 +149,10 @@ class StepRecord:
     """One training step's observable state."""
 
     step: int
-    loss: Optional[float] = None
+    loss: Optional[Union[int, float]] = None
     batch_fingerprint: Optional[str] = None
-    grad_norm: Optional[float] = None
-    extras: Dict[str, float] = field(default_factory=dict)
+    grad_norm: Optional[Union[int, float]] = None
+    extras: Dict[str, Union[int, float]] = field(default_factory=dict)
     model_fingerprint: Optional[str] = None
 
 
@@ -211,10 +211,10 @@ class TrajectoryRecorder:
     def record(
         self,
         step: int,
-        loss: Optional[float] = None,
+        loss: Optional[Union[int, float]] = None,
         batch: Any = None,
-        grad_norm: Optional[float] = None,
-        **extras: float,
+        grad_norm: Optional[Union[int, float]] = None,
+        **extras: Union[int, float],
     ) -> None:
         if isinstance(step, bool):
             raise TypeError("step must be an integer, not bool")
@@ -222,13 +222,26 @@ class TrajectoryRecorder:
             step = operator.index(step)
         except TypeError as error:
             raise TypeError("step must be an integer without coercion or truncation") from error
+        def numeric(value):
+            # Preserve integer observations exactly; float conversion can erase
+            # a real divergence before the comparison ever sees the evidence.
+            if isinstance(value, bool):
+                raise TypeError("numeric observations must not be bool")
+            try:
+                return int(operator.index(value))
+            except TypeError:
+                return float(value)
+
+        normalized_loss = None if loss is None else numeric(loss)
+        normalized_norm = None if grad_norm is None else numeric(grad_norm)
+        normalized_extras = {key: numeric(value) for key, value in extras.items()}
         fp = fingerprint_tensor(batch) if batch is not None else None
         self.trajectory.steps.append(
             StepRecord(
                 step=int(step),
-                loss=None if loss is None else float(loss),
+                loss=normalized_loss,
                 batch_fingerprint=fp,
-                grad_norm=None if grad_norm is None else float(grad_norm),
-                extras={k: float(v) for k, v in extras.items()},
+                grad_norm=normalized_norm,
+                extras=normalized_extras,
             )
     )
