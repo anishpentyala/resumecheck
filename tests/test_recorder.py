@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 import torch
 
@@ -326,3 +327,26 @@ class TestRecorderStepIndexValidation:
         with pytest.raises(TypeError, match="step must be an integer"):
             recorder.record(FloatOnly(), loss=1.)
         assert recorder.trajectory.steps == []
+
+
+@pytest.mark.parametrize("kind", ["numpy", "torch"])
+def test_nested_array_fingerprints_do_not_retain_all_encoded_payloads(kind):
+    import tracemalloc
+    arrays=[np.ones(1024*1024,dtype=np.uint8) for _ in range(24)]
+    if kind=="torch":
+        arrays=[torch.from_numpy(a) for a in arrays]
+    tracemalloc.start()
+    try:
+        fingerprint_tensor(arrays)
+        _,peak=tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak<8*1024*1024,f'nested payload bytes retained: peak={peak}'
+
+
+@pytest.mark.parametrize('kind',['list','dict','tuple'])
+def test_streaming_encoding_keeps_existing_v2_fingerprint(kind):
+    values=[np.arange(6,dtype=np.int16).reshape(2,3),b'abc','text',None,True,1,2.5]
+    batch=values if kind=='list' else tuple(values) if kind=='tuple' else {str(i):v for i,v in enumerate(values)}
+    expected={'list':'v2:5856bbc23df3db23','dict':'v2:6a9d0d652c884665','tuple':'v2:3a96a1b3e5678b01'}
+    assert fingerprint_tensor(batch)==expected[kind]

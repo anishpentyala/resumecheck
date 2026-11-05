@@ -25,12 +25,21 @@ def fingerprint_tensor(obj: Any) -> str:
     their payload bytes match. This is a diagnostic fingerprint, not a
     collision-proof attestation or a serializer for arbitrary objects.
     """
-    parts: List[bytes] = []
+    hasher = hashlib.sha256()
+    # Only dictionary tie-break keys need their encoded bytes for sorting.
+    # Ordinary batch payloads go straight into the incremental hash.
+    parts = None
 
     def emit(tag: bytes, payload: bytes) -> None:
-        parts.append(tag + str(len(payload)).encode() + b":" + payload)
+        header = tag + str(len(payload)).encode() + b":"
+        if parts is None:
+            hasher.update(header)
+            hasher.update(payload)
+        else:
+            parts.extend((header, payload))
 
     def walk(x: Any) -> None:
+        nonlocal parts
         if hasattr(x, "detach"):  # torch.Tensor
             tensor = x.detach().cpu().resolve_conj().resolve_neg().contiguous()
             try:
@@ -90,15 +99,19 @@ def fingerprint_tensor(obj: Any) -> str:
             display_counts = Counter(display.values())
 
             def key_order(key):
+                nonlocal parts
                 # Preserve the historical string order, but resolve equal
                 # display strings using the same typed encoding as the key.
                 # Insertion order must not distinguish equal dictionaries.
                 if display_counts[display[key]] == 1:
                     return display[key], b""
-                start = len(parts)
-                walk(key)
-                encoded = b"".join(parts[start:])
-                del parts[start:]
+                previous = parts
+                parts = []
+                try:
+                    walk(key)
+                    encoded = b"".join(parts)
+                finally:
+                    parts = previous
                 return display[key], encoded
 
             for k in sorted(x, key=key_order):
@@ -128,7 +141,7 @@ def fingerprint_tensor(obj: Any) -> str:
         )
 
     walk(obj)
-    return "v2:" + hashlib.sha256(b"".join(parts)).hexdigest()[:16]
+    return "v2:" + hasher.hexdigest()[:16]
 
 
 @dataclass
