@@ -41,18 +41,34 @@ def save_comparison_artifacts(
     interruption or process death can still leave partial artifacts. A bundle
     is complete only when its manifest.json exists.
 
-    Nonempty ``check_extras`` writes schema 3 and verifies that ``report``
-    matches the selected scope with these tolerances. Old schemas/default
-    output remain unchanged. This stores observations, not scheduler state.
+    Every report must match the full saved scope and tolerances before any
+    directory is created. Nonempty ``check_extras`` writes schema 3. Valid
+    old schemas/default output remain unchanged. This stores observations, not scheduler state.
     """
     extra_names = _selected_extras(check_extras)
-    if extra_names:
-        from .compare import compare_trajectories
+    from .compare import compare_trajectories
+    import math
 
-        expected = compare_trajectories(uninterrupted, resumed, rtol=rtol, atol=atol,
-                                        check_extras=extra_names)
-        if asdict(expected) != asdict(report):
-            raise ValueError('artifact report does not match the selected comparison scope')
+    for name, value in (("rtol", rtol), ("atol", atol)):
+        try:
+            valid = (type(value) in (int, float) and math.isfinite(value) and value >= 0)
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError(f"artifact {name} must be a finite nonnegative number")
+    expected = compare_trajectories(uninterrupted, resumed, rtol=rtol, atol=atol,
+                                    check_extras=extra_names)
+    # Bind structured results, not presentation text: old callers may have
+    # compared with different tolerances that happened to give the same result.
+    # JSON equality distinguishes bool/int and handles matching NaN diagnostics.
+    actual_fields, expected_fields = asdict(report), asdict(expected)
+    actual_fields.pop('summary')
+    expected_fields.pop('summary')
+    if json.dumps(expected_fields, sort_keys=True) != json.dumps(actual_fields, sort_keys=True):
+        raise ValueError('artifact report does not match the selected comparison scope')
+    # Always persist the canonical summary for the saved settings, never stale
+    # caller wording. This does not modify the caller's report.
+    report = expected
     destination = validate_artifacts_dir(path)
     trajectories = {
         'uninterrupted.json': uninterrupted,
