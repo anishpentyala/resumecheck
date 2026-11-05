@@ -743,3 +743,22 @@ lost before recording. Existing matching-NaN and same-signed-infinity
 behavior for loss and gradient norm is unchanged. Selected extras retain
 their existing finite-value policy and exact tolerance comparisons. Exact
 rational comparison costs more CPU than rounded float arithmetic.
+
+### Unambiguous JSON output members
+
+`Trajectory.save` and comparison-artifact trajectory writes validate their
+serialized JSON before opening a trajectory output or creating a bundle
+folder. Python JSON encoding can convert different dictionary keys to the
+same member name, for example integer `1` and string `"1"`, or `None` and
+`"null"`. Such collisions now raise a generic `ValueError` without echoing
+the names or values, instead of publishing a trajectory the duplicate-safe
+reader cannot load. This applies at every serialized object depth, including
+metadata and extras.
+
+Existing trajectory files are not truncated on this validation error, and
+new bundle folders are not created. Noncolliding non-string keys retain their
+existing JSON conversion; this does not promise lossless arbitrary Python
+object serialization. Existing NaN/infinity value handling is unchanged.
+Serialization validation adds a decode pass and some memory/CPU work before
+writing. Later disk errors and process interruption keep their existing
+behavior; this is not an atomic file-replacement or authenticity guarantee.

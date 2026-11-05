@@ -12,7 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Union, Optional, Sequence
 
-from .jsoninput import unique_object
+from .jsoninput import unique_object, unambiguous_dumps
 from .compare import CompareReport
 from .recorder import Trajectory, step_to_dict
 
@@ -75,7 +75,7 @@ def save_comparison_artifacts(
         'resumed.json': resumed,
     }
     payloads = {
-        name: json.dumps({'name': trajectory.name, 'meta': trajectory.meta,
+        name: unambiguous_dumps({'name': trajectory.name, 'meta': trajectory.meta,
                           'steps': [step_to_dict(record) for record in trajectory.steps]}, indent=2)
         for name, trajectory in trajectories.items()
     }
