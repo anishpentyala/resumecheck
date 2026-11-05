@@ -23,6 +23,7 @@ jobs:
           python-version: "3.9"
       - run: pip install -e .
       - run: python -c "import resumecheck, resumecheck.cli, resumecheck.compare, resumecheck.recorder, resumecheck.artifacts"
+      - run: python scripts/check_ci_test_coverage.py
 
   core:
     # torch + numpy only (test fixtures record real tensors); no framework
@@ -42,7 +43,7 @@ jobs:
       # numpy is a test-fixture dep here: torch does not require it, and
       # unlike the adapter legs no framework extra pulls it in transitively.
       - run: pip install -e . pytest numpy==2.2.6
-      - run: python -m pytest tests/test_recorder.py tests/test_lazy_tensor_views.py tests/test_manual_checkpoint_example.py tests/test_cli.py tests/test_cli_json.py tests/test_duplicate_evidence_json.py tests/test_compare.py tests/test_artifacts.py tests/test_artifact_report_binding.py tests/test_replay.py tests/test_adapter_step_limits.py -k "not actual_integer_index" -q
+      - run: python -m pytest tests/test_compare_extras.py tests/test_compare_step_validation.py tests/test_dictionary_key_order.py tests/test_extras_artifacts.py tests/test_fingerprint_validation.py tests/test_ci_test_coverage.py tests/test_recorder.py tests/test_lazy_tensor_views.py tests/test_manual_checkpoint_example.py tests/test_cli.py tests/test_cli_json.py tests/test_duplicate_evidence_json.py tests/test_compare.py tests/test_artifacts.py tests/test_artifact_report_binding.py tests/test_replay.py tests/test_adapter_step_limits.py -k "not actual_integer_index" -q
 
   lightning:
     # Pin tied to README "Validated upstream versions (2026-10-30)":
@@ -73,7 +74,7 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest transformers==5.20.2 accelerate==1.15.0
-      - run: python -m pytest tests/test_hf_parity.py tests/test_hf_accumulation.py tests/test_hf_gpt2_offline.py tests/test_hf_artifacts.py tests/test_hf_model_state.py tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[hf] -q
+      - run: python -m pytest tests/test_hf_learning_rates.py tests/test_hf_parity.py tests/test_hf_accumulation.py tests/test_hf_gpt2_offline.py tests/test_hf_artifacts.py tests/test_hf_model_state.py tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[hf] -q
 
       - run: python -m pytest tests/test_adapter_temporary_outputs.py -k hf -q
 
