@@ -678,3 +678,11 @@ Main-process random dataset transforms can still diverge at resume because
 loader prefetch or batch skipping consumes extra random draws; phase seeding
 is not a fix for that continuation problem. Worker/sampler limitations and the
 separate loader-generator option above still apply. Torch-only factories keep the same seed and checked setup.
+
+Batch/model-state fingerprint encoding is hashed incrementally: nested tensors
+and arrays do not retain every encoded payload until the final digest. The
+existing v2 encoding and fingerprints are unchanged. This reduces temporary
+memory for batches or state dictionaries containing many separate buffers, but
+one tensor/array still needs its CPU/contiguous/byte representation. Dictionary
+keys with tied display strings retain encoded key bytes for deterministic
+ordering. This is not a constant-memory or large-model throughput guarantee.
