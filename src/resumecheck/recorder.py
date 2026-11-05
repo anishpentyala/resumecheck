@@ -8,6 +8,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from .jsoninput import unique_object
+
 
 def fingerprint_tensor(obj: Any) -> str:
     """Stable content fingerprint of a batch or tensor-like object.
@@ -171,7 +173,7 @@ class Trajectory:
 
     @classmethod
     def load(cls, path: Union[str, Path]) -> "Trajectory":
-        d = json.loads(Path(path).read_text())
+        d = json.loads(Path(path).read_text(), object_pairs_hook=unique_object)
         return cls(
             name=d["name"],
             meta=d.get("meta", {}),

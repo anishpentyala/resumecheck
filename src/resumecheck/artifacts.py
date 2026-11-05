@@ -12,6 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Union, Optional, Sequence
 
+from .jsoninput import unique_object
 from .compare import CompareReport
 from .recorder import Trajectory, step_to_dict
 
@@ -103,7 +104,7 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
     from .compare import compare_trajectories
 
     directory = Path(path)
-    manifest = json.loads((directory / 'manifest.json').read_text())
+    manifest = json.loads((directory / 'manifest.json').read_text(), object_pairs_hook=unique_object)
     if not isinstance(manifest, dict):
         raise ValueError('artifact manifest must be an object')
     if type(manifest.get('schema_version')) is not int or manifest['schema_version'] not in (1, 2, 3):
@@ -150,7 +151,7 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
         raise ValueError('artifact requires full comparisons with all recorded fields enabled')
     # Require the saved report to be present and structurally readable, but
     # never use its passed flag to decide this replay's result.
-    saved = json.loads((directory / 'report.json').read_text())
+    saved = json.loads((directory / 'report.json').read_text(), object_pairs_hook=unique_object)
     if not isinstance(saved, dict) or type(saved.get('passed')) is not bool:
         raise ValueError('artifact report is missing or malformed')
     full = Trajectory.load(directory / 'uninterrupted.json')
