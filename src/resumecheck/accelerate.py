@@ -147,7 +147,11 @@ def check_accelerate(
         ckpt: Optional[str] = None,
         set_epoch_on_start: Optional[int] = None,
     ) -> Trajectory:
-        torch.manual_seed(seed)
+        # Model factories and num_workers=0 datasets may use Python/NumPy
+        # RNGs too. Reset the same global streams for each experiment phase.
+        from accelerate.utils import set_seed
+
+        set_seed(seed)
         cfg = DataLoaderConfiguration(
             use_stateful_dataloader=True,
             use_seedable_sampler=True,
@@ -336,7 +340,11 @@ def check_accelerate_skip_path(
         start_epoch: int = 0,
         skip_batches: int = 0,
     ) -> Trajectory:
-        torch.manual_seed(seed)
+        # Model factories and num_workers=0 datasets may use Python/NumPy
+        # RNGs too. Reset the same global streams for each experiment phase.
+        from accelerate.utils import set_seed
+
+        set_seed(seed)
         cfg = DataLoaderConfiguration(
             use_stateful_dataloader=False,
             use_seedable_sampler=True,
