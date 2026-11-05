@@ -43,7 +43,7 @@ jobs:
       # numpy is a test-fixture dep here: torch does not require it, and
       # unlike the adapter legs no framework extra pulls it in transitively.
       - run: pip install -e . pytest numpy==2.2.6
-      - run: python -m pytest tests/test_record_exact_observables.py tests/test_compare_numeric_evidence.py tests/test_compare_extras.py tests/test_compare_step_validation.py tests/test_dictionary_key_order.py tests/test_extras_artifacts.py tests/test_fingerprint_validation.py tests/test_ci_test_coverage.py tests/test_recorder.py tests/test_lazy_tensor_views.py tests/test_manual_checkpoint_example.py tests/test_cli.py tests/test_cli_json.py tests/test_duplicate_evidence_json.py tests/test_compare.py tests/test_artifacts.py tests/test_artifact_report_binding.py tests/test_replay.py tests/test_adapter_step_limits.py -k "not actual_integer_index" -q
+      - run: python -m pytest tests/test_compare_tolerance_boundary.py tests/test_record_exact_observables.py tests/test_compare_numeric_evidence.py tests/test_compare_extras.py tests/test_compare_step_validation.py tests/test_dictionary_key_order.py tests/test_extras_artifacts.py tests/test_fingerprint_validation.py tests/test_ci_test_coverage.py tests/test_recorder.py tests/test_lazy_tensor_views.py tests/test_manual_checkpoint_example.py tests/test_cli.py tests/test_cli_json.py tests/test_duplicate_evidence_json.py tests/test_compare.py tests/test_artifacts.py tests/test_artifact_report_binding.py tests/test_replay.py tests/test_adapter_step_limits.py -k "not actual_integer_index" -q
 
   lightning:
     # Pin tied to README "Validated upstream versions (2026-10-30)":
