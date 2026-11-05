@@ -119,7 +119,10 @@ def check_accelerate(
 
         artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
-    steps_per_epoch = -(-len(train_dataset) // batch_size)  # ceil
+    from .validation import validate_loader_shape
+
+    dataset_size, batch_size = validate_loader_shape(train_dataset, batch_size)
+    steps_per_epoch = -(-dataset_size // batch_size)  # ceil
     if boundary_set_epoch_workaround:
         if resume_at % steps_per_epoch != 0:
             raise ValueError(
@@ -178,7 +181,9 @@ def check_accelerate(
         model.train()
         step = 0
         done = False
+        empty_epochs = 0
         while not done:
+            epoch_start_step = step
             for batch in dl:
                 batch_fp = fingerprint_tensor(batch)
                 out = model(**batch)
@@ -200,6 +205,14 @@ def check_accelerate(
                 if step >= target:
                     done = True
                     break
+            if step == epoch_start_step:
+                empty_epochs += 1
+                # A restored boundary iterator can be empty once. A second
+                # complete no-progress pass cannot certify requested steps.
+                if empty_epochs >= 2:
+                    raise ValueError("Accelerate training made no progress for two consecutive dataloader iterations; requested steps were not verified")
+            else:
+                empty_epochs = 0
         return rec.trajectory
 
     full = run("uninterrupted", max_steps)
@@ -313,7 +326,10 @@ def check_accelerate_skip_path(
 
         artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
-    steps_per_epoch = -(-len(train_dataset) // batch_size)  # ceil
+    from .validation import validate_loader_shape
+
+    dataset_size, batch_size = validate_loader_shape(train_dataset, batch_size)
+    steps_per_epoch = -(-dataset_size // batch_size)  # ceil
     resume_epoch = resume_at // steps_per_epoch
     resume_batches_in_epoch = resume_at % steps_per_epoch
     if skip_path_set_epoch_workaround and resume_batches_in_epoch == 0:
@@ -366,7 +382,9 @@ def check_accelerate_skip_path(
         epoch = start_epoch
         first_epoch = True
         done = False
+        empty_epochs = 0
         while not done:
+            epoch_start_step = step
             if first_epoch and skip_batches:
                 active = skip_first_batches(dl, skip_batches)
             else:
@@ -400,6 +418,14 @@ def check_accelerate_skip_path(
                     done = True
                     break
             epoch += 1
+            if step == epoch_start_step:
+                empty_epochs += 1
+                # A restored boundary iterator can be empty once. A second
+                # complete no-progress pass cannot certify requested steps.
+                if empty_epochs >= 2:
+                    raise ValueError("Accelerate training made no progress for two consecutive dataloader iterations; requested steps were not verified")
+            else:
+                empty_epochs = 0
         return rec.trajectory
 
     full = run("uninterrupted", max_steps)
