@@ -643,3 +643,11 @@ cannot contradict replay. The caller's report is not modified. Valid matching
 reports keep the same schema and content. This is local consistency checking,
 not provenance, authentication or tamper-proof storage. Replay still recomputes
 from the saved trajectories and never trusts the stored PASS flag.
+
+CI keeps explicit test-file groups so core, Lightning, HF and Accelerate legs
+install only their intended extras. The Python-floor leg runs
+`scripts/check_ci_test_coverage.py`, which fails when a `tests/test_*.py` module
+has no explicit one-line pytest-command assignment in the workflow. Node-specific
+assignments count at the file level. This guard does not prove every test or
+conditional branch was selected or executed: per-leg logs and skip enforcement
+still own that evidence, including intentional `-k` deselections.
