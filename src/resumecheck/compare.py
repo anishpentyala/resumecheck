@@ -33,6 +33,14 @@ class CompareReport:
 
 
 def _floats_close(a: float, b: float, rtol: float, atol: float) -> bool:
+    # JSON integers may exceed float precision or range. Keep their exact
+    # value, including when only one side is an integer. Nonfinite float
+    # behavior below remains the documented matching-NaN/infinity policy.
+    if isinstance(a, int) or isinstance(b, int):
+        from fractions import Fraction
+        if any(isinstance(v, float) and not math.isfinite(v) for v in (a, b)):
+            return False
+        return abs(Fraction(a) - Fraction(b)) <= Fraction(atol) + Fraction(rtol) * abs(Fraction(b))
     if math.isnan(a) or math.isnan(b):
         return math.isnan(a) and math.isnan(b)
     if math.isinf(a) or math.isinf(b):
@@ -247,6 +255,13 @@ def compare_trajectories(
                 sb.grad_norm if check_grad_norm else None,
             ),
         ):
+            invalid = False
+            for label, value in (("uninterrupted", sa_v), ("resumed", sb_v)):
+                if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+                    missing.append(f"{fname} must be a number in {label} at step {sa.step}")
+                    invalid = True
+            if invalid:
+                continue
             if sa_v is None or sb_v is None:
                 if (sa_v is None) != (sb_v is None) and fname not in one_sided:
                     one_sided.add(fname)
