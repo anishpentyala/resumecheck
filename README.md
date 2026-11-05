@@ -703,3 +703,17 @@ sample does not certify the final scheduler state. Unchanged rates may hide
 other state changes. Manual optimization, multiple-optimizer sequencing,
 distributed or custom callback orderings are not newly validated. The default
 remains off and preserves the prior observable scope and artifact schema.
+
+### Accelerate no-progress guard
+
+Both Accelerate checks require a nonempty sized training dataset and a positive
+integer-index `batch_size` (not bool, a rounded float, or a numeric string).
+Two consecutive completed dataloader iterations with no optimizer step raise
+`ValueError` rather than cycling indefinitely. One empty iteration is allowed
+because a restored boundary iterator can be exhausted before the next epoch.
+An exception leaves no completed artifact bundle.
+
+This guards repeated empty iterations only, not a blocking iterator, slow
+model, hanging worker or general time limit. A custom loader deliberately
+empty for two whole iterations is rejected. Nonempty tiny datasets remain
+supported, and the existing documented sampler/resume limitations are unchanged.
