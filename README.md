@@ -611,3 +611,19 @@ is null and `passed` is false; a human-readable error also goes to stderr.
 Argument-parsing errors still use argparse's stderr/exit-2 behavior and do not
 promise JSON. Without `--json`, the existing text output is unchanged. Reports
 verify only the recorded observables, not original training or provenance.
+
+### Ambiguous evidence JSON
+
+Trajectory loading and artifact replay reject repeated decoded JSON object
+member names anywhere in the raw input, including equal repeated values and
+escaped aliases such as `loss` and `lo\u0073s`. A last-value-wins parser could
+otherwise discard divergent observables or conflicting replay settings.
+The error omits member names and values, which may contain private metadata.
+CLI comparisons/replays return input-error exit 2, including a structured
+error when `--json` is selected. Distinct step objects may reuse field names
+as usual; recorder-generated files are unchanged.
+
+This detects ambiguous raw objects, not authenticity or tampering in general.
+An ordinary dictionary already lost any duplicates discarded by an earlier
+parser, so in-memory comparison cannot recover them. Replay still recomputes
+the recorded observations rather than trusting a saved report verdict.
