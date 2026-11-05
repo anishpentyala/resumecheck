@@ -651,3 +651,11 @@ has no explicit one-line pytest-command assignment in the workflow. Node-specifi
 assignments count at the file level. This guard does not prove every test or
 conditional branch was selected or executed: per-leg logs and skip enforcement
 still own that evidence, including intentional `-k` deselections.
+
+Loss and gradient-norm comparisons reject booleans and nonnumeric recorded
+values instead of treating them as numeric evidence. JSON integers retain
+their exact value when compared with integers or floats, including values
+beyond float precision or range. The same tolerance formula applies, with
+exact rational arithmetic on integer-containing pairs. Existing matching-NaN
+and same-signed infinity behavior remains unchanged; matching nonfinite
+observables is not evidence that training was numerically healthy.
