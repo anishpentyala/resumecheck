@@ -686,3 +686,20 @@ memory for batches or state dictionaries containing many separate buffers, but
 one tensor/array still needs its CPU/contiguous/byte representation. Dictionary
 keys with tied display strings retain encoded key bytes for deterministic
 ordering. This is not a constant-memory or large-model throughput guarantee.
+
+### Lightning learning-rate evidence
+
+Pass `record_learning_rates=True` to `check_lightning` to sample all optimizer
+parameter-group rates at each completed optimizer-window batch-end callback.
+Fields such as `optimizer0.lr.group0` are compared with the selected `rtol` and
+`atol`, and saved schema-3 evidence replays the same selected extra fields.
+Nonfinite, negative, non-scalar or absent rates fail closed. A controlled
+checkpoint scheduler-counter change can now diverge even with constant losses
+and unchanged parameters; without this option those observables still pass.
+
+This is rate evidence, not a scheduler-state fingerprint. Epoch-end or
+metric-driven scheduler updates may happen after the callback, so the last
+sample does not certify the final scheduler state. Unchanged rates may hide
+other state changes. Manual optimization, multiple-optimizer sequencing,
+distributed or custom callback orderings are not newly validated. The default
+remains off and preserves the prior observable scope and artifact schema.

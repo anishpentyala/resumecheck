@@ -44,8 +44,10 @@ def _make_callback_cls():
     from lightning.pytorch.callbacks import Callback
 
     class RecorderCallback(Callback):
-        def __init__(self, recorder: TrajectoryRecorder, record_model_state: bool = False) -> None:
+        def __init__(self, recorder: TrajectoryRecorder, record_model_state: bool = False,
+                     record_learning_rates: bool = False) -> None:
             self.record_model_state = record_model_state
+            self.record_learning_rates = record_learning_rates
             self.recorder = recorder
             self._pending_batch_fp: Optional[str] = None
             self._window_fingerprints = []
@@ -106,6 +108,14 @@ def _make_callback_cls():
             self.recorder.trajectory.steps[-1].batch_fingerprint = window_fingerprint
             if self.record_model_state:
                 self.recorder.trajectory.steps[-1].model_fingerprint = fingerprint_tensor(pl_module.state_dict())
+            if self.record_learning_rates:
+                rates = {}
+                for index, optimizer in enumerate(trainer.optimizers):
+                    for name, value in _optimizer_rates(optimizer).items():
+                        rates[f"optimizer{index}.{name}"] = value
+                if not rates:
+                    raise ValueError("no optimizer learning rates were recorded")
+                self.recorder.trajectory.steps[-1].extras.update(rates)
             self._last_optimizer_step = optimizer_step
             self._window_fingerprints = []
             self._window_losses = []
@@ -138,6 +148,7 @@ def check_lightning(
     atol: float = 1e-7,
     artifacts_dir: Optional[Union[str, Path]] = None,
     record_model_state: bool = False,
+    record_learning_rates: bool = False,
 ) -> CompareReport:
     """Verify that checkpoint+resume at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run for the given factories.
@@ -163,6 +174,14 @@ def check_lightning(
     manual-optimization or distributed configurations. The default observables
     and legacy JSON shape are unchanged.
 
+    ``record_learning_rates=True`` additionally samples each optimizer group's
+    learning rate at the completed-window batch-end callback. These numeric
+    extras use the comparison's rtol/atol and are retained for artifact replay.
+    Missing/invalid rates fail closed. This samples the rate visible at that
+    callback, not every scheduler update (epoch/metric-driven updates may occur
+    later), and does not verify full scheduler or optimizer state. Default off
+    preserves the existing comparison scope and artifact schema.
+
     ``artifacts_dir`` optionally retains the completed recorded trajectories,
     report and comparison settings in a new local directory below an existing
     parent. Existing paths are never replaced. Exceptions produce no bundle;
@@ -175,6 +194,8 @@ def check_lightning(
     _require_lightning()
     import lightning.pytorch as pl
 
+    if type(record_learning_rates) is not bool:
+        raise TypeError("record_learning_rates must be boolean")
     if type(record_model_state) is not bool:
         raise TypeError("record_model_state must be boolean")
 
@@ -204,7 +225,7 @@ def check_lightning(
         def run(name: str, steps: int, ckpt_path: Optional[str] = None) -> Trajectory:
             pl.seed_everything(seed, workers=True)
             rec = TrajectoryRecorder(name, seed=seed)
-            cb = RecorderCallback(rec, record_model_state)
+            cb = RecorderCallback(rec, record_model_state, record_learning_rates)
             trainer = pl.Trainer(max_steps=steps, callbacks=[cb], **kwargs)
             trainer.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt_path)
             return rec.trajectory
@@ -239,7 +260,7 @@ def check_lightning(
         with tempfile.TemporaryDirectory() as tmp:
             pl.seed_everything(seed, workers=True)
             rec_a = TrajectoryRecorder("pre-crash", seed=seed)
-            cb_a = RecorderCallback(rec_a, record_model_state)
+            cb_a = RecorderCallback(rec_a, record_model_state, record_learning_rates)
             trainer_a = pl.Trainer(max_steps=max_steps, callbacks=[cb_a, StopAtCallback(resume_at)], **kwargs)
             trainer_a.fit(module_factory(), datamodule_factory())
             _require_phase_steps(rec_a.trajectory, 1, resume_at, "pre-crash")
@@ -247,7 +268,7 @@ def check_lightning(
             trainer_a.save_checkpoint(ckpt)
 
             rec_b = TrajectoryRecorder("resumed", seed=seed)
-            cb_b = RecorderCallback(rec_b, record_model_state)
+            cb_b = RecorderCallback(rec_b, record_model_state, record_learning_rates)
             trainer_b = pl.Trainer(max_steps=max_steps, callbacks=[cb_b], **kwargs)
             trainer_b.fit(module_factory(), datamodule_factory(), ckpt_path=ckpt)
             _require_phase_steps(rec_b.trajectory, resume_at + 1, max_steps, "post-resume")
@@ -255,9 +276,43 @@ def check_lightning(
         resumed = Trajectory(name="resumed", meta={"seed": seed})
         resumed.steps = rec_a.trajectory.steps + rec_b.trajectory.steps
 
-        report = compare_trajectories(full, resumed, rtol=rtol, atol=atol)
+        selected_rates = sorted({name for trajectory in (full, resumed)
+                                 for record in trajectory.steps for name in record.extras}) if record_learning_rates else None
+        if record_learning_rates and not selected_rates:
+            raise ValueError("no optimizer learning rates were recorded")
+        report = compare_trajectories(full, resumed, rtol=rtol, atol=atol,
+                                      check_extras=selected_rates)
         if artifacts_dir is not None:
             from .artifacts import save_comparison_artifacts
 
-            save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol)
+            save_comparison_artifacts(artifacts_dir, full, resumed, report, rtol=rtol, atol=atol,
+                                      check_extras=selected_rates)
         return report
+
+
+def _optimizer_rates(optimizer) -> dict[str, float]:
+    """Post-step optimizer-group rates, not a scheduler-state fingerprint."""
+    import math
+    import numbers
+    import torch
+
+    groups = getattr(optimizer, "param_groups", None)
+    if not isinstance(groups, (list, tuple)) or not groups:
+        raise ValueError("optimizer has no learning-rate parameter groups")
+    rates = {}
+    for index, group in enumerate(groups):
+        value = group.get("lr")
+        if isinstance(value, torch.Tensor):
+            if value.numel() != 1 or value.ndim != 0 or value.dtype == torch.bool:
+                raise ValueError("optimizer learning rate must be a finite nonnegative scalar")
+            value = value.detach().cpu().item()
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            raise ValueError("optimizer learning rate must be a finite nonnegative scalar")
+        try:
+            valid = math.isfinite(value) and value >= 0
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError("optimizer learning rate must be a finite nonnegative scalar")
+        rates[f"lr.group{index}"] = float(value)
+    return rates
