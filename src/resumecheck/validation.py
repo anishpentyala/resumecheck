@@ -16,3 +16,19 @@ def validate_step_limits(max_steps, resume_at):
     if not 0 < resume_at < max_steps:
         raise ValueError("resume_at must be in (0, max_steps)")
     return max_steps, resume_at
+
+
+def validate_loader_shape(dataset, batch_size):
+    """Normalize a positive batch index and require a nonempty sized dataset."""
+    if isinstance(batch_size, bool):
+        raise TypeError("batch_size must be a positive integer, not bool")
+    try:
+        batch_size = operator.index(batch_size)
+    except TypeError as error:
+        raise TypeError("batch_size must be a positive integer without coercion") from error
+    if batch_size < 1:
+        raise ValueError("batch_size must be a positive integer")
+    size = len(dataset)
+    if size < 1:
+        raise ValueError("Accelerate requires a nonempty sized training dataset")
+    return size, batch_size
