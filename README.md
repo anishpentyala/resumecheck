@@ -659,3 +659,22 @@ beyond float precision or range. The same tolerance formula applies, with
 exact rational arithmetic on integer-containing pairs. Existing matching-NaN
 and same-signed infinity behavior remains unchanged; matching nonfinite
 observables is not evidence that training was numerically healthy.
+
+Both Accelerate adapter paths seed Python's global `random`, NumPy's global
+RNG and Torch through `accelerate.utils.set_seed(seed)` at the start of each
+phase, before constructing the model and loader. This lets seed-deterministic
+factories use those global streams without
+starting the uninterrupted and pre-crash runs from unrelated ambient state.
+The resumed phase still relies on checkpoint restoration for the continuation
+state. A corrupted restored RNG is not hidden by re-seeding after load.
+See https://huggingface.co/docs/accelerate/main/package_reference/utilities
+(`set_seed`, checked 2026-11-05) and
+https://huggingface.co/docs/accelerate/concept_guides/performance.
+
+This deliberately resets those process-global streams; it does not preserve the
+caller's ambient RNG state. Independent `random.Random`/NumPy Generator objects,
+external data sources and mutable dataset state are not reset by this helper.
+Main-process random dataset transforms can still diverge at resume because
+loader prefetch or batch skipping consumes extra random draws; phase seeding
+is not a fix for that continuation problem. Worker/sampler limitations and the
+separate loader-generator option above still apply. Torch-only factories keep the same seed and checked setup.
