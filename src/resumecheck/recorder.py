@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .jsoninput import unique_object
+from .jsoninput import unique_object, unambiguous_dumps
 
 
 def fingerprint_tensor(obj: Any) -> str:
@@ -174,7 +174,7 @@ class Trajectory:
 
     def save(self, path: Union[str, Path]) -> None:
         Path(path).write_text(
-            json.dumps(
+            unambiguous_dumps(
                 {
                     "name": self.name,
                     "meta": self.meta,
