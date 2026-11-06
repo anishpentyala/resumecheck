@@ -64,6 +64,9 @@
 - Keep the importable `resumecheck.__version__` in step with the released
   package metadata, and correct the stale claim that Accelerate adapters
   do not support `record_model_state`.
+- Evidence nested past the JSON decoder's recursion limit now gives the
+  CLI's clean exit-2 input error, including JSON output mode, instead of
+  a traceback with exit 1 (the comparison FAIL code).
 
 ### Added
 
