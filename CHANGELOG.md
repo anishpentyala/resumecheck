@@ -59,6 +59,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Keep the importable `resumecheck.__version__` in step with the released
+  package metadata, and correct the stale claim that Accelerate adapters
+  do not support `record_model_state`.
+
 ### Added
 
 - GitHub Actions CI: a 3.9 stdlib-only floor leg (the package core never
