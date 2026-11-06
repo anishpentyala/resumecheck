@@ -221,10 +221,10 @@ Unsupported custom state raises rather than being silently dropped. It does not
 directly verify optimizer, scheduler, RNG, nonpersistent buffers, GPU/distributed
 state, or arbitrary custom checkpoint behavior. Hashes are diagnostic evidence,
 not collision-proof attestations. Default checks do not record model-state
-fingerprints; the Accelerate adapters do not yet offer this option. Lightning
-samples after the final batch in each optimizer window. This does not make
-stochastic training deterministic or restore RNG state that the underlying
-checkpoint path does not preserve.
+fingerprints. The Accelerate adapters fingerprint the unwrapped model's full
+`state_dict()`; Lightning samples after the final batch in each optimizer
+window. This does not make stochastic training deterministic or restore RNG state
+that the underlying checkpoint path does not preserve.
 
 Model-state artifact bundles use schema 2 and require this check on replay.
 Older resumecheck versions reject schema 2 rather than silently ignoring the
