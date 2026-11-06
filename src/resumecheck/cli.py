@@ -56,7 +56,7 @@ def main(argv=None) -> int:
                 a, b, rtol=args.rtol, atol=args.atol, check_batch=not args.no_batch,
                 check_extras=args.extra
             )
-    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError) as error:
         if args.json:
             print(json.dumps({"schema_version": 1, "status": "error", "passed": False,
                               "error": str(error), "report": None}, allow_nan=False))
