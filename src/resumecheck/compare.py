@@ -83,7 +83,20 @@ def compare_trajectories(
     Every selected field must be present and finite on both sides at each
     compared step. They use the same rtol/atol; unselected extras remain
     outside the comparison. This does not verify full scheduler/optimizer state.
+    The five boolean scope flags require actual booleans;
+    configuration strings, numbers and containers raise TypeError.
     """
+    # Scope is an explicit policy, not Python truthiness. In particular a
+    # configuration string "false" must not opt into partial verification.
+    for name, value in (
+        ("check_loss", check_loss),
+        ("check_batch", check_batch),
+        ("check_grad_norm", check_grad_norm),
+        ("allow_partial", allow_partial),
+        ("check_model_state", check_model_state),
+    ):
+        if type(value) is not bool:
+            raise TypeError(f"{name} must be a boolean")
     # Named extras are opt-in. Missing/malformed evidence must never be
     # silently ignored, even when other enabled observables match.
     if isinstance(check_extras, (str, bytes)):
@@ -309,4 +322,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-    )
+                )
