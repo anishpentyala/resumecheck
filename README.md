@@ -762,3 +762,14 @@ object serialization. Existing NaN/infinity value handling is unchanged.
 Serialization validation adds a decode pass and some memory/CPU work before
 writing. Later disk errors and process interruption keep their existing
 behavior; this is not an atomic file-replacement or authenticity guarantee.
+
+
+### Explicit comparison policy
+
+The direct `compare_trajectories` API requires actual booleans for `check_loss`,
+`check_batch`, `check_grad_norm`, `check_model_state` and `allow_partial`. Strings
+such as `"false"`, numeric 0/1 and containers raise `TypeError` rather than
+silently changing comparison scope through Python truthiness. Real `False`
+still disables a selected check, and real `allow_partial=True` still scopes a
+comparison to the common prefix with the step-count warning retained. This
+validates API policy values; it does not expand which training state is recorded.
