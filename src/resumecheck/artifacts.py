@@ -43,7 +43,8 @@ def save_comparison_artifacts(
 
     Every report must match the full saved scope and tolerances before any
     directory is created. Nonempty ``check_extras`` writes schema 3. Valid
-    old schemas/default output remain unchanged. This stores observations, not scheduler state.
+    old schemas/default output remain unchanged. Optimizer evidence uses schema 4.
+    This stores observations, not checkpoint state.
     """
     extra_names = _selected_extras(check_extras)
     from .compare import compare_trajectories
@@ -89,8 +90,13 @@ def save_comparison_artifacts(
     if extra_names:
         comparison['check_extras'] = list(extra_names)
         comparison['check_model_state'] = has_model_state
+    has_optimizer_state = any(record.optimizer_fingerprint is not None
+                              for trajectory in trajectories.values() for record in trajectory.steps)
+    if has_optimizer_state:
+        comparison.update(check_optimizer_state=True, check_model_state=has_model_state,
+                          check_extras=list(extra_names))
     manifest = json.dumps({
-        'schema_version': 3 if extra_names else (2 if has_model_state else 1),
+        'schema_version': 4 if has_optimizer_state else (3 if extra_names else (2 if has_model_state else 1)),
         'kind': 'resumecheck.comparison',
         'files': list(payloads),
         'comparison': comparison,
@@ -123,7 +129,7 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
     manifest = json.loads((directory / 'manifest.json').read_text(), object_pairs_hook=unique_object)
     if not isinstance(manifest, dict):
         raise ValueError('artifact manifest must be an object')
-    if type(manifest.get('schema_version')) is not int or manifest['schema_version'] not in (1, 2, 3):
+    if type(manifest.get('schema_version')) is not int or manifest['schema_version'] not in (1, 2, 3, 4):
         raise ValueError('unsupported artifact schema version')
     if manifest.get('kind') != 'resumecheck.comparison':
         raise ValueError('unsupported artifact kind')
@@ -132,21 +138,27 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
         raise ValueError('artifact manifest must name the fixed comparison files in order')
     settings = manifest.get('comparison')
     required = {'rtol', 'atol', 'check_loss', 'check_batch', 'check_grad_norm', 'allow_partial'}
-    if manifest['schema_version'] in (2, 3):
+    if manifest['schema_version'] in (2, 3, 4):
         required.add('check_model_state')
-    if manifest['schema_version'] == 3:
+    if manifest['schema_version'] in (3, 4):
         required.add('check_extras')
+    if manifest['schema_version'] == 4:
+        required.add('check_optimizer_state')
     if not isinstance(settings, dict) or set(settings) != required:
         raise ValueError('artifact comparison settings are missing or unsupported')
-    if manifest['schema_version'] == 3:
+    if manifest['schema_version'] in (3, 4):
         try:
             names = _selected_extras(settings['check_extras'])
         except (ValueError, TypeError) as error:
             raise ValueError('artifact check_extras must contain unique nonempty field names') from error
-        if not names or not isinstance(settings['check_extras'], list):
+        if not isinstance(settings['check_extras'], list):
+            raise ValueError('artifact check_extras must be a list')
+        if not names and manifest['schema_version'] == 3:
             raise ValueError('schema 3 requires a nonempty selected extras list')
         if type(settings['check_model_state']) is not bool:
             raise ValueError('artifact check_model_state must be boolean')
+    if manifest['schema_version'] == 4 and settings['check_optimizer_state'] is not True:
+        raise ValueError('schema 4 requires optimizer-state comparisons')
     for key in ('rtol', 'atol'):
         if type(settings[key]) not in (int, float):
             raise ValueError(f'artifact {key} must be a finite nonnegative number')
@@ -178,8 +190,14 @@ def replay_comparison_artifacts(path: Union[str, Path]) -> CompareReport:
         raise ValueError('model-state evidence requires schema 2')
     if manifest['schema_version'] == 2 and not state_recorded:
         raise ValueError('schema 2 has no recorded model-state evidence')
-    if manifest['schema_version'] == 3 and settings['check_model_state'] != state_recorded:
-        raise ValueError('schema 3 model-state setting must match recorded evidence')
+    if manifest['schema_version'] in (3, 4) and settings['check_model_state'] != state_recorded:
+        raise ValueError('artifact model-state setting must match recorded evidence')
+    optimizer_recorded = any(record.optimizer_fingerprint is not None for trajectory in (full, resumed)
+                             for record in trajectory.steps)
+    if optimizer_recorded and manifest['schema_version'] != 4:
+        raise ValueError('optimizer-state evidence requires schema 4')
+    if manifest['schema_version'] == 4 and not optimizer_recorded:
+        raise ValueError('schema 4 has no recorded optimizer-state evidence')
     return compare_trajectories(full, resumed, **settings)
 
 
