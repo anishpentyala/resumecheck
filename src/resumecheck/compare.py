@@ -137,6 +137,144 @@ def compare_trajectories(
         missing.append(
             f"step count differs: {len(a)} vs {len(b)} (compared first {n})"
         )
+from __future__ import annotations
+
+import math
+import operator
+import re
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Optional, Sequence
+
+from .recorder import Trajectory
+
+
+@dataclass
+class Divergence:
+    step: int
+    field: str
+    value_a: Optional[float]
+    value_b: Optional[float]
+    detail: str
+
+
+@dataclass
+class CompareReport:
+    """Result of comparing an uninterrupted run against a resumed run."""
+
+    passed: bool
+    steps_compared: int
+    first_divergence: Optional[Divergence] = None
+    missing_fields: List[str] = field(default_factory=list)
+    summary: str = ""
+
+    def __str__(self) -> str:
+        return self.summary
+
+
+def _floats_close(a: float, b: float, rtol: float, atol: float) -> bool:
+    # JSON integers may exceed float precision or range. Keep their exact
+    # value, including when only one side is an integer. Nonfinite float
+    # behavior below remains the documented matching-NaN/infinity policy.
+    if isinstance(a, int) or isinstance(b, int):
+        from fractions import Fraction
+        if any(isinstance(v, float) and not math.isfinite(v) for v in (a, b)):
+            return False
+        return abs(Fraction(a) - Fraction(b)) <= Fraction(atol) + Fraction(rtol) * abs(Fraction(b))
+    if math.isnan(a) or math.isnan(b):
+        return math.isnan(a) and math.isnan(b)
+    if math.isinf(a) or math.isinf(b):
+        return a == b
+    # Rounded finite subtraction/product/addition can cross the tolerance
+    # boundary too (not only overflow). Compare represented values exactly,
+    # including subnormal differences and underflowed tolerance products.
+    from fractions import Fraction
+
+    return abs(Fraction(a) - Fraction(b)) <= Fraction(atol) + Fraction(rtol) * abs(Fraction(b))
+
+
+def compare_trajectories(
+    uninterrupted: Trajectory,
+    resumed: Trajectory,
+    rtol: float = 1e-5,
+    atol: float = 1e-7,
+    check_loss: bool = True,
+    check_batch: bool = True,
+    check_grad_norm: bool = True,
+    allow_partial: bool = False,
+    check_model_state: bool = True,
+    check_extras: Optional[Sequence[str]] = None,
+    check_optimizer_state: bool = True,
+) -> CompareReport:
+    """Compare step-by-step. The first field to exceed tolerance at the
+    earliest step is reported as the divergence - that step is where resume
+    state restoration went wrong (or where nondeterminism begins).
+
+    Steps are matched by their ordinal index (0, 1, 2, ... of the full
+    training run), so the resumed trajectory must be the concatenation of the
+    pre-crash and post-resume phases in training order.
+
+    Fails closed: a step-count mismatch, fields recorded in only one run, or
+    a step with no shared enabled observable, or legacy batch fingerprints
+    means the runs were NOT verified, so the report fails (the condition is listed in ``missing_fields``). Pass
+    ``allow_partial=True`` to explicitly scope the check to the common
+    prefix: a step-count mismatch then demotes to a warning, while having
+    nothing comparable or one-sided fields still fails.
+    ``check_extras`` optionally names recorded numeric extras such as ``lr``.
+    Every selected field must be present and finite on both sides at each
+    compared step. They use the same rtol/atol; unselected extras remain
+    outside the comparison. This does not verify full scheduler/optimizer state.
+    Recorded optimizer fingerprints are exact-bit observations when enabled.
+    Missing or malformed fingerprints fail closed; absent evidence in both
+    runs preserves the existing comparison scope. This is not a checkpoint
+    loader or a guarantee about unrecorded optimizer/application state.
+    The boolean scope flags require actual booleans;
+    configuration strings, numbers and containers raise TypeError.
+    """
+    # Scope is an explicit policy, not Python truthiness. In particular a
+    # configuration string "false" must not opt into partial verification.
+    for name, value in (
+        ("check_loss", check_loss),
+        ("check_batch", check_batch),
+        ("check_grad_norm", check_grad_norm),
+        ("allow_partial", allow_partial),
+        ("check_model_state", check_model_state),
+        ("check_optimizer_state", check_optimizer_state),
+    ):
+        if type(value) is not bool:
+            raise TypeError(f"{name} must be a boolean")
+    # Named extras are opt-in. Missing/malformed evidence must never be
+    # silently ignored, even when other enabled observables match.
+    if isinstance(check_extras, (str, bytes)):
+        raise TypeError("check_extras must be a sequence of nonempty field names")
+    extra_names = tuple(check_extras) if check_extras is not None else ()
+    if any(not isinstance(name, str) or not name for name in extra_names):
+        raise ValueError("check_extras field names must be nonempty strings")
+    extra_names = tuple(dict.fromkeys(extra_names))
+    if not math.isfinite(rtol) or not math.isfinite(atol) or rtol < 0 or atol < 0:
+        raise ValueError("rtol and atol must be finite and nonnegative")
+    normalized = []
+    for label, trajectory in (("uninterrupted", uninterrupted), ("resumed", resumed)):
+        records = []
+        for position, record in enumerate(trajectory.steps):
+            try:
+                if isinstance(record.step, bool):
+                    raise TypeError("bool is not a step index")
+                step = operator.index(record.step)
+            except TypeError:
+                detail = f"{label} record {position}: step must be an integer without coercion or truncation"
+                return CompareReport(passed=False, steps_compared=0, missing_fields=[detail], summary=f"FAIL: {detail}")
+            records.append(replace(record, step=step))
+        if any(right.step <= left.step for left, right in zip(records, records[1:])):
+            detail = f"{label} step indices must be strictly increasing in recorded order"
+            return CompareReport(passed=False, steps_compared=0, missing_fields=[detail], summary=f"FAIL: {detail}")
+        normalized.append(records)
+    a, b = normalized
+    n = min(len(a), len(b))
+    missing: List[str] = []
+    if len(a) != len(b):
+        missing.append(
+            f"step count differs: {len(a)} vs {len(b)} (compared first {n})"
+        )
 
     state_expected = check_model_state and any(record.model_fingerprint is not None for record in a + b)
     optimizer_expected = check_optimizer_state and any(record.optimizer_fingerprint is not None for record in a + b)
@@ -353,4 +491,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-                                                 )
+    )
