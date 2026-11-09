@@ -611,6 +611,9 @@ resumecheck compare full.json resumed.json --extra lr
 
 Defaults still ignore extras. Selected extras use the same `rtol` and `atol`
 as losses and must be present and finite in both runs at every compared step.
+Arbitrary-size Python/JSON integer counters remain exact and finite, even beyond
+float range. Finite floats keep their represented values and use the same exact
+tolerance comparison; no integer-to-float conversion is needed for this check.
 A missing, null, boolean, string or nonfinite selected value fails verification
 even when matching loss evidence is available. A numeric mismatch reports
 `extras.NAME` and its first differing step. With partial comparison enabled,

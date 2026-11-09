@@ -31,7 +31,7 @@ def test_matching_extras_alone_are_a_scoped_observable():
     assert 'compared extras' in r.summary
 
 
-@pytest.mark.parametrize('bad', [None, True, '0.1', float('nan'), float('inf'), 10**400, [], {}])
+@pytest.mark.parametrize('bad', [None, True, '0.1', float('nan'), float('inf'), [], {}])
 def test_invalid_selected_extra_fails_closed_with_other_matching_loss(bad):
     a = _run('a', [{'lr': bad}])
     r = compare_trajectories(a, a, check_extras=['lr'])
@@ -159,3 +159,35 @@ def test_selected_integer_tolerance_uses_exact_represented_values():
     b = _run('b', [{'counter': 9007199254740992.0}])
     assert compare_trajectories(a, b, check_extras=['counter'], rtol=0, atol=1).passed
     assert not compare_trajectories(a, b, check_extras=['counter'], rtol=0, atol=.5).passed
+
+
+@pytest.mark.parametrize('sign', [1, -1])
+@pytest.mark.parametrize('roundtrip', [False, True])
+@pytest.mark.parametrize('difference,atol,passed', [(0,0,True),(1,0,False),(1,1,True),(2,1,False)])
+def test_arbitrary_integer_extra_remains_finite_exact_evidence(sign,roundtrip,difference,atol,passed,tmp_path):
+    from resumecheck.recorder import TrajectoryRecorder, Trajectory
+    a,b=TrajectoryRecorder('a'),TrajectoryRecorder('b')
+    a.record(0,counter=sign*(10**400+difference))
+    b.record(0,counter=sign*10**400)
+    left,right=a.trajectory,b.trajectory
+    if roundtrip:
+        left.save(tmp_path/'a.json');right.save(tmp_path/'b.json')
+        left,right=Trajectory.load(tmp_path/'a.json'),Trajectory.load(tmp_path/'b.json')
+    report=compare_trajectories(left,right,rtol=0,atol=atol,check_extras=['counter'])
+    assert report.passed is passed
+    assert not report.missing_fields
+    if not passed:
+        assert report.first_divergence.field=='extras.counter'
+        assert report.first_divergence.value_a==sign*(10**400+difference)
+        assert report.first_divergence.value_b==sign*10**400
+
+
+@pytest.mark.parametrize('value',[float('inf'),-float('inf'),float('nan'),True,'1',None])
+def test_huge_integer_extra_does_not_admit_invalid_other_side(value):
+    from resumecheck.recorder import StepRecord, Trajectory
+    a=Trajectory('a',[StepRecord(0,extras={'counter':10**400})])
+    b=Trajectory('b',[StepRecord(0,extras={'counter':value})])
+    report=compare_trajectories(a,b,check_extras=['counter'])
+    assert not report.passed
+    assert any('resumed' in message for message in report.missing_fields)
+    assert not any('uninterrupted' in message for message in report.missing_fields)
