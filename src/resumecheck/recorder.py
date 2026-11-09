@@ -154,6 +154,7 @@ class StepRecord:
     grad_norm: Optional[Union[int, float]] = None
     extras: Dict[str, Union[int, float]] = field(default_factory=dict)
     model_fingerprint: Optional[str] = None
+    optimizer_fingerprint: Optional[str] = None
 
 
 def step_to_dict(record: StepRecord) -> dict:
@@ -161,6 +162,8 @@ def step_to_dict(record: StepRecord) -> dict:
     result = asdict(record)
     if record.model_fingerprint is None:
         result.pop('model_fingerprint')
+    if record.optimizer_fingerprint is None:
+        result.pop('optimizer_fingerprint')
     return result
 
 
@@ -244,4 +247,4 @@ class TrajectoryRecorder:
                 grad_norm=normalized_norm,
                 extras=normalized_extras,
             )
-    )
+        )
