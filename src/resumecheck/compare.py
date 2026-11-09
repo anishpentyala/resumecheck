@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import operator
+import re
 from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence
 
@@ -64,6 +65,7 @@ def compare_trajectories(
     allow_partial: bool = False,
     check_model_state: bool = True,
     check_extras: Optional[Sequence[str]] = None,
+    check_optimizer_state: bool = True,
 ) -> CompareReport:
     """Compare step-by-step. The first field to exceed tolerance at the
     earliest step is reported as the divergence - that step is where resume
@@ -83,7 +85,11 @@ def compare_trajectories(
     Every selected field must be present and finite on both sides at each
     compared step. They use the same rtol/atol; unselected extras remain
     outside the comparison. This does not verify full scheduler/optimizer state.
-    The five boolean scope flags require actual booleans;
+    Recorded optimizer fingerprints are exact-bit observations when enabled.
+    Missing or malformed fingerprints fail closed; absent evidence in both
+    runs preserves the existing comparison scope. This is not a checkpoint
+    loader or a guarantee about unrecorded optimizer/application state.
+    The boolean scope flags require actual booleans;
     configuration strings, numbers and containers raise TypeError.
     """
     # Scope is an explicit policy, not Python truthiness. In particular a
@@ -94,6 +100,7 @@ def compare_trajectories(
         ("check_grad_norm", check_grad_norm),
         ("allow_partial", allow_partial),
         ("check_model_state", check_model_state),
+        ("check_optimizer_state", check_optimizer_state),
     ):
         if type(value) is not bool:
             raise TypeError(f"{name} must be a boolean")
@@ -132,9 +139,10 @@ def compare_trajectories(
         )
 
     state_expected = check_model_state and any(record.model_fingerprint is not None for record in a + b)
+    optimizer_expected = check_optimizer_state and any(record.optimizer_fingerprint is not None for record in a + b)
     one_sided: set = set()
     if not any((check_loss, check_batch, check_grad_norm)) and not (
-        state_expected or extra_names
+        state_expected or optimizer_expected or extra_names
     ):
         missing.append("no checks enabled")
 
@@ -159,6 +167,7 @@ def compare_trajectories(
             ("batch_fingerprint", check_batch),
             ("grad_norm", check_grad_norm),
             ("model_fingerprint", check_model_state),
+            ("optimizer_fingerprint", check_optimizer_state),
         )
         if not any(
             enabled and getattr(sa, name) is not None and getattr(sb, name) is not None
@@ -256,6 +265,27 @@ def compare_trajectories(
                     ), missing_fields=missing,
                     summary=f"DIVERGED at step {sa.step}: model state differs",
                 )
+        if check_optimizer_state:
+            fingerprints = (sa.optimizer_fingerprint, sb.optimizer_fingerprint)
+            if optimizer_expected and all(fp is None for fp in fingerprints):
+                missing.append(f"optimizer_fingerprint missing in both runs at step {sa.step}")
+            if any(fp is not None and (not isinstance(fp, str) or re.fullmatch(r"v2:[0-9a-f]{16}", fp) is None) for fp in fingerprints):
+                if "optimizer_fingerprint" not in one_sided:
+                    one_sided.add("optimizer_fingerprint")
+                    missing.append("optimizer_fingerprint must use the supported v2 content encoding")
+            if (sa.optimizer_fingerprint is None) != (sb.optimizer_fingerprint is None):
+                missing.append(f"optimizer_fingerprint recorded in only one run at step {sa.step}")
+            elif (sa.optimizer_fingerprint is not None
+                  and all(isinstance(fp, str) for fp in fingerprints)
+                  and sa.optimizer_fingerprint != sb.optimizer_fingerprint):
+                return CompareReport(
+                    passed=False, steps_compared=i,
+                    first_divergence=Divergence(
+                        step=sa.step, field="optimizer_state", value_a=None, value_b=None,
+                        detail="optimizer-state content fingerprints differ (exact-bit comparison)",
+                    ), missing_fields=missing,
+                    summary=f"DIVERGED at step {sa.step}: optimizer state differs",
+                )
         for fname, sa_v, sb_v in (
             ("loss", sa.loss if check_loss else None, sb.loss if check_loss else None),
             (
@@ -305,6 +335,7 @@ def compare_trajectories(
         summary = (
             f"PASS: {n} steps identical within rtol={rtol}, atol={atol}"
             + ("; model-state fingerprints match exactly" if state_expected else "")
+            + ("; optimizer-state fingerprints match exactly" if optimizer_expected else "")
             + (f"; compared extras {', '.join(repr(name) for name in extra_names)}" if extra_names else "")
             + (f" (warnings: {'; '.join(missing)})" if missing else "")
         )
@@ -322,4 +353,4 @@ def compare_trajectories(
         steps_compared=n,
         missing_fields=missing,
         summary=summary,
-    )
+                                                 )
