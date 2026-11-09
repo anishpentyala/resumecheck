@@ -247,4 +247,4 @@ class TrajectoryRecorder:
                 grad_norm=normalized_norm,
                 extras=normalized_extras,
             )
-        )
+    )
