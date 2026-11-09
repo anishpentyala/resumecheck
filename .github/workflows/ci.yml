@@ -43,7 +43,7 @@ jobs:
       # numpy is a test-fixture dep here: torch does not require it, and
       # unlike the adapter legs no framework extra pulls it in transitively.
       - run: pip install -e . pytest numpy==2.2.6
-      - run: python -m pytest tests/test_package_version.py tests/test_serialized_member_collisions.py tests/test_compare_tolerance_boundary.py tests/test_record_exact_observables.py tests/test_compare_numeric_evidence.py tests/test_compare_extras.py tests/test_compare_step_validation.py tests/test_compare_boolean_policy.py tests/test_dictionary_key_order.py tests/test_extras_artifacts.py tests/test_fingerprint_validation.py tests/test_ci_test_coverage.py tests/test_recorder.py tests/test_lazy_tensor_views.py tests/test_manual_checkpoint_example.py tests/test_cli.py tests/test_cli_json.py tests/test_duplicate_evidence_json.py tests/test_compare.py tests/test_artifacts.py tests/test_artifact_report_binding.py tests/test_replay.py tests/test_adapter_step_limits.py -k "not actual_integer_index" -q
+      - run: python -m pytest tests/test_optimizer_state.py tests/test_optimizer_adapters.py::test_actual_adamw_warmup_blind_spot_then_next_update_diverges tests/test_package_version.py tests/test_serialized_member_collisions.py tests/test_compare_tolerance_boundary.py tests/test_record_exact_observables.py tests/test_compare_numeric_evidence.py tests/test_compare_extras.py tests/test_compare_step_validation.py tests/test_compare_boolean_policy.py tests/test_dictionary_key_order.py tests/test_extras_artifacts.py tests/test_fingerprint_validation.py tests/test_ci_test_coverage.py tests/test_recorder.py tests/test_lazy_tensor_views.py tests/test_manual_checkpoint_example.py tests/test_cli.py tests/test_cli_json.py tests/test_duplicate_evidence_json.py tests/test_compare.py tests/test_artifacts.py tests/test_artifact_report_binding.py tests/test_replay.py tests/test_adapter_step_limits.py -k "not actual_integer_index" -q
 
   lightning:
     # Pin tied to README "Validated upstream versions (2026-10-30)":
@@ -57,6 +57,7 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest lightning==2.6.6
+      - run: python -m pytest tests/test_optimizer_adapters.py -k lightning -q
       - run: python -m pytest tests/test_lightning_learning_rates.py tests/test_lightning_parity.py tests/test_lightning_accumulation.py tests/test_lightning_artifacts.py tests/test_lightning_model_state.py tests/test_lightning_rng_example.py tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[lightning] -q
 
       - run: python -m pytest tests/test_adapter_temporary_outputs.py -k lightning -q
@@ -74,6 +75,7 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest transformers==5.20.2 accelerate==1.15.0
+      - run: python -m pytest tests/test_optimizer_adapters.py -k hf -q
       - run: python -m pytest tests/test_hf_learning_rates.py tests/test_hf_parity.py tests/test_hf_accumulation.py tests/test_hf_gpt2_offline.py tests/test_hf_artifacts.py tests/test_hf_model_state.py tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[hf] -q
 
       - run: python -m pytest tests/test_adapter_temporary_outputs.py -k hf -q
@@ -90,4 +92,5 @@ jobs:
       - name: Install CPU torch
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e . pytest accelerate==1.15.0 torchdata==0.11.0
+      - run: python -m pytest tests/test_optimizer_adapters.py -k accelerate -q
       - run: python -m pytest tests/test_accelerate_progress.py tests/test_accelerate_parity.py tests/test_accelerate_artifacts.py tests/test_accelerate_model_state.py tests/test_accelerate_loader_rng.py tests/test_accelerate_dropout_example.py tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[accelerate] tests/test_adapter_step_limits.py::test_actual_integer_index_experiment_matches_plain_int[skip] -q
