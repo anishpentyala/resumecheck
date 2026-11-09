@@ -134,6 +134,73 @@ one fixed permutation, one process, no workers, Python/NumPy/CUDA RNG or
 arbitrary data pipeline restoration. A PASS covers these recorded observables,
 not every optimizer or application state.
 
+## Observe optimizer state even when losses match
+
+A matching loss, model and learning rate do not imply matching optimizer
+moments. For example, during a zero-learning-rate warmup, AdamW accumulates
+moments without moving the weights. Restoring the weights but resetting the
+optimizer can leave all three observables equal, then change the next update
+when the learning rate becomes nonzero.
+
+All adapters offer an opt-in exact optimizer-state check:
+
+```python
+report = check_hf(
+    model_factory=TinyModel,
+    train_dataset=ds,
+    max_steps=100,
+    resume_at=40,
+    record_optimizer_state=True,
+    record_model_state=True,       # independent optional model observation
+    artifacts_dir="optimizer-evidence",
+)
+```
+
+The same `record_optimizer_state=True` flag works with `check_lightning`,
+`check_accelerate` and `check_accelerate_skip_path`. It fingerprints each
+optimizer's complete `state_dict()` after each recorded optimizer update,
+including per-parameter moments/counters and parameter-group settings.
+Lightning records the ordered list of optimizer dictionaries; the other
+adapters record their optimizer dictionary. Compare runs made with the same
+adapter, optimizer configuration and stable parameter/group ordering.
+Accelerate's experiments still use their existing SGD optimizer; this flag
+adds observation, not an optimizer factory or a different training setup.
+
+For a manual loop, set the observation on the step you just recorded:
+
+```python
+from resumecheck.recorder import fingerprint_tensor
+
+rec.record(step, loss=loss.item(), batch=batch)
+rec.trajectory.steps[-1].optimizer_fingerprint = fingerprint_tensor(
+    optimizer.state_dict()
+)
+```
+
+`compare_trajectories` compares recorded optimizer fingerprints by default,
+even if numeric tolerances are loose. A mismatch reports `optimizer_state`.
+One-sided evidence, malformed fingerprints, or a step missing both
+fingerprints when either run otherwise records optimizer evidence fail verification.
+Optimizer labels must have the recorder's `v2:` plus 16 lowercase hexadecimal
+character format. This checks syntax, not authorship or integrity. When neither
+run records optimizer evidence, the old comparison scope is unchanged.
+`check_optimizer_state=False` explicitly excludes it from a direct comparison;
+artifact export rejects reports that omit recorded optimizer evidence.
+
+The flag is off by default: copying tensors to CPU and hashing optimizer
+state adds time and memory cost proportional to state size. Unsupported
+custom values raise instead of being silently ignored. Schema-4 evidence
+bundles preserve the enabled optimizer comparison and replay rejects disabled
+scope, missing evidence, or a downgrade to an older schema. Schemas 1-3 and
+default trajectory JSON remain unchanged when optimizer evidence is absent.
+
+This is an observation, not a checkpoint loader or a general resume guarantee.
+It does not check parameter identity, hidden state outside `state_dict()`,
+scheduler/RNG state, sharded/distributed optimizers, mixed precision, or CUDA.
+The current proof covers deterministic single-process CPU runs. Fingerprints
+are the existing truncated content hashes, not a collision-proof or adversarial
+integrity scheme. No raw optimizer checkpoint is stored in an evidence bundle.
+
 ## How the crash is simulated
 
 The interrupted run is configured for the **final** step count and then
