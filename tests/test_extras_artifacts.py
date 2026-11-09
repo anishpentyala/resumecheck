@@ -158,3 +158,23 @@ def test_actual_scheduler_failure_replays_after_restart(tmp_path):
         save_comparison_artifacts(path, baseline.trajectory, resumed.trajectory, r,
                                   rtol=1e-5, atol=1e-7, check_extras=['lr'])
         assert asdict(replay_comparison_artifacts(path)) == asdict(r)
+
+
+@pytest.mark.parametrize('delta',[0,1])
+def test_arbitrary_integer_counter_retained_in_bundle_replay_and_cli(tmp_path,capsys,delta):
+    from resumecheck.cli import main
+    a,b=pair()
+    a.steps[0].extras['lr']=10**400+delta
+    b.steps[0].extras['lr']=10**400
+    report=compare_trajectories(a,b,check_extras=['lr'],rtol=0,atol=0)
+    assert report.passed is (delta==0)
+    assert not report.missing_fields
+    path=tmp_path/'bundle'
+    save_comparison_artifacts(path,a,b,report,rtol=0,atol=0,check_extras=['lr'])
+    assert asdict(replay_comparison_artifacts(path))==asdict(report)
+    assert main(['replay',str(path),'--json'])==(1 if delta else 0)
+    data=json.loads(capsys.readouterr().out)
+    assert data['passed'] is (delta==0)
+    if delta:
+        assert data['report']['first_divergence']['value_a']==10**400+1
+        assert data['report']['first_divergence']['value_b']==10**400
