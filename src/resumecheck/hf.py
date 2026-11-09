@@ -32,7 +32,8 @@ def _require_hf():
 
 
 def _make_trainer_cls(recorder: TrajectoryRecorder, record_model_state: bool = False,
-                      record_learning_rates: bool = False):
+                      record_learning_rates: bool = False,
+                      record_optimizer_state: bool = False):
     from transformers import Trainer, TrainerCallback
 
     class RecordingTrainer(Trainer):
@@ -55,6 +56,8 @@ def _make_trainer_cls(recorder: TrajectoryRecorder, record_model_state: bool = F
                     recorder.trajectory.steps[-1].batch_fingerprint = fp
                     if record_learning_rates:
                         recorder.trajectory.steps[-1].extras.update(_optimizer_rates(owner.optimizer))
+                    if record_optimizer_state:
+                        recorder.trajectory.steps[-1].optimizer_fingerprint = fingerprint_tensor(owner.optimizer.state_dict())
                     if record_model_state:
                         recorder.trajectory.steps[-1].model_fingerprint = fingerprint_tensor(owner.model.state_dict())
                     owner._rc_fingerprints = []
@@ -106,6 +109,7 @@ def check_hf(
     artifacts_dir: Optional[Union[str, Path]] = None,
     record_model_state: bool = False,
     record_learning_rates: bool = False,
+    record_optimizer_state: bool = False,
 ) -> CompareReport:
     """Verify that checkpoint+resume at ``resume_at`` reproduces an
     uninterrupted ``max_steps`` run.
@@ -140,7 +144,21 @@ def check_hf(
     written after a completed comparison, including a divergent result; training
     exceptions propagate without a bundle. Recorded losses, fingerprints and
     metadata may be sensitive: review before sharing.
+
+    ``record_optimizer_state=True`` additionally fingerprints the complete
+    optimizer ``state_dict()`` after each recorded update (including parameter
+    groups and moments). Fingerprints are compared exactly, not with loss
+    tolerances, and persisted in schema-4 evidence. This copies optimizer tensors
+    to CPU and adds time/memory cost proportional to state size. Unsupported
+    custom values raise instead of being skipped. Default off is unchanged.
+    This observes state_dict contents, not parameter identity, scheduler/RNG,
+    sharded/distributed state or an arbitrary optimizer implementation's hidden
+    state. Compare like-for-like deterministic runs with stable group ordering.
+
     """
+    if type(record_optimizer_state) is not bool:
+        raise TypeError("record_optimizer_state must be boolean")
+
     from .validation import validate_step_limits
 
     max_steps, resume_at = validate_step_limits(max_steps, resume_at)
@@ -161,6 +179,8 @@ def check_hf(
         artifacts_dir = validate_artifacts_dir(artifacts_dir)
 
     capture_options = {}
+    if record_optimizer_state:
+        capture_options['record_optimizer_state'] = True
     if record_model_state:
         capture_options['record_model_state'] = True
     if record_learning_rates:
