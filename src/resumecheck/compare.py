@@ -183,9 +183,12 @@ def compare_trajectories(
                     continue
                 value = record.extras[name]
                 try:
+                    # Python integers are always finite. Sending them through
+                    # math.isfinite first would coerce to float and reject exact
+                    # counters outside float range before Fraction can compare.
                     valid = (not isinstance(value, bool)
-                             and isinstance(value, (int, float))
-                             and math.isfinite(value))
+                             and (isinstance(value, int)
+                                  or (isinstance(value, float) and math.isfinite(value))))
                 except (OverflowError, ValueError, TypeError):
                     valid = False
                 if not valid:
