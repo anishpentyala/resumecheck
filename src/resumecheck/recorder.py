@@ -41,7 +41,21 @@ def fingerprint_tensor(obj: Any) -> str:
     def walk(x: Any) -> None:
         nonlocal parts
         if hasattr(x, "detach"):  # torch.Tensor
-            tensor = x.detach().cpu().resolve_conj().resolve_neg().contiguous()
+            tensor = x.detach().cpu()
+            if getattr(tensor, "is_sparse", False):  # sparse COO, not CSR/CSC/BSR/BSC
+                # Preserve the stored COO representation without densifying or
+                # coalescing duplicate entries (which performs numeric sums).
+                # _indices/_values also expose uncoalesced tensors; observation
+                # does not need their gradient history.
+                emit(b"tensor-sparse-coo", (
+                    f"{tensor.dtype}|{tuple(tensor.shape)}|"
+                    f"{tensor.sparse_dim()}|{tensor.dense_dim()}|"
+                    f"{tensor.is_coalesced()}|"
+                ).encode())
+                walk(tensor._indices())
+                walk(tensor._values())
+                return
+            tensor = tensor.resolve_conj().resolve_neg().contiguous()
             try:
                 arr = tensor.numpy()
             except TypeError:

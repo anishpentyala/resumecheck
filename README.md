@@ -552,6 +552,29 @@ encoding. A lazy view and its resolved value match; the unconjugated or unnegate
 source generally does not. This is CPU-checked for dense tensors, not sparse,
 quantized or device-specific view behavior.
 
+### Sparse COO tensor observations
+
+`fingerprint_tensor` also accepts PyTorch sparse COO tensors, including
+uncoalesced and hybrid sparse/dense shapes, for batch, model and optimizer
+observations. It hashes the stored representation: dtype, logical shape,
+sparse/dense dimension counts, coalesced flag, ordered indices and value bytes.
+It does not allocate the logical dense tensor or sum duplicate entries.
+
+This is exact representation comparison, not mathematical sparse equivalence.
+Different index order, duplicate decomposition, explicit zeros or coalesced
+state may differ even when dense values would match. Inputs are not modified;
+dense v2 fingerprints remain unchanged. CPU-checked; compressed sparse layouts
+(CSR/CSC/BSR/BSC), quantized tensors and device-specific sparse behavior are
+not added to the supported scope. Fingerprinting is not sparse-invariant
+validation: callers remain responsible for constructing valid tensors.
+
+The tests include a real CPU sparse `Embedding` + momentum-SGD checkpoint
+round trip at zero learning rate. Restoring sparse momentum matches the full
+run; omitting it leaves loss and model observations equal but produces an
+optimizer-state divergence at the first resumed step. Saved comparison
+artifacts replay that result. This is a small manual-loop diagnostic, not a
+new checkpoint manager or a claim that every framework supports sparse state.
+
 ## Examples
 
 `examples/tiny_gpt2_resume_parity.py` runs `check_hf` against a real
