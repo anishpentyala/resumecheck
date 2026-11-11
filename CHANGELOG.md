@@ -59,6 +59,13 @@
 
 ## Unreleased
 
+### Added
+
+- Add an optional manual-loop named optimizer fingerprint for exact built-in
+  SGD, Adam and AdamW on CPU. It observes live model parameter ownership and
+  ordered groups alongside full serialized state; it does not load or remap
+  checkpoints. Existing raw fingerprints and adapter defaults are unchanged.
+
 ### Fixed
 
 - Keep the importable `resumecheck.__version__` in step with the released
