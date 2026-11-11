@@ -201,6 +201,72 @@ The current proof covers deterministic single-process CPU runs. Fingerprints
 are the existing truncated content hashes, not a collision-proof or adversarial
 integrity scheme. No raw optimizer checkpoint is stored in an evidence bundle.
 
+## Manual-loop named optimizer ownership (experimental)
+
+Raw optimizer state dictionaries use positional IDs, not stable model names.
+The existing `record_optimizer_state=True` flags still observe those raw
+state dictionaries and require stable parameter/group ordering. They do not
+change with this optional helper.
+
+For a manual single-process CPU loop, opt into an observation that also binds
+each optimizer parameter to its current live model name:
+
+```python
+from resumecheck.optimizer_identity import fingerprint_named_optimizer
+
+rec.record(step, loss=loss.item(), batch=batch)
+rec.trajectory.steps[-1].optimizer_fingerprint = fingerprint_named_optimizer(
+    model, optimizer
+)
+```
+
+Use this helper at the same observation point on both sides of a comparison.
+Do not mix raw and named optimizer fingerprints. They use the same existing
+`v2:` label syntax and schema-4 persistence but encode different observations.
+The helper adds a distinct kind tag, optimizer type, ordered per-group live
+names, shape, dtype and requires-grad status to the complete raw state dict.
+It resolves names through actual Parameter object identity, not loaded
+`param_names` metadata, which can be overwritten during a load.
+
+The supported optimizer types are exact built-in SGD, Adam and AdamW. Each
+optimizer parameter must have exactly one model name. Partial-model optimizers
+are supported; tied-name aliases, repeated/foreign parameters, empty groups,
+optimizer subclasses/wrappers, state-dict hooks, non-CPU parameters and
+non-strided layouts are rejected. Torch is imported only when the helper is
+called. This does not add a torch dependency to core imports. Each call copies
+and hashes the complete optimizer state, including CPU tensor contents. Use
+it for test-scale comparisons; cost grows with optimizer state size.
+
+The positional relationship between serialized IDs and live groups relies on
+the supported built-in torch optimizer implementation enumerating groups and
+parameters in order. This is a cooperative API observation, not independent
+proof against a modified torch runtime. Unknown hook-registry layouts fail
+with an explicit unsupported-layout error.
+
+A same-shape parameter permutation can leave raw optimizer dictionaries and
+named model weights identical immediately after load while binding moments to
+the wrong live parameters. The CPU tests reproduce this for SGD, Adam and
+AdamW with one or two groups, and include a numerical SGD continuation where
+raw optimizer observations still agree but live weights diverge. A named
+optimizer observation distinguishes the ownership before that next update.
+This is added observation scope, not a fix for the raw mode's documented
+identity exclusion.
+
+This is not a checkpoint loader, save-time identity manifest, preflight,
+name-based remapping hook or identity authenticator. It cannot certify names,
+missing checkpoint moments, shared-storage relationships between distinct
+Parameters, hidden optimizer state, distributed/sharded/wrapped models, CUDA
+behavior, scheduler/RNG state or resume correctness. A caller can still choose
+misleading names. It uses existing truncated content hashes, not adversarial
+attestation. Current execution evidence is CPU torch 2.14.1 only.
+
+PyTorch documents positional optimizer loading [without additional identity
+verification](https://docs.pytorch.org/docs/stable/generated/torch.optim.Optimizer.state_dict.md)
+and that [loaded names do not affect loading](https://docs.pytorch.org/docs/stable/generated/torch.optim.Optimizer.load_state_dict.md).
+Its [custom load hooks](https://docs.pytorch.org/docs/main/optim.html)
+and DCP/FQN checkpoint helpers are existing name-based loading alternatives;
+this helper does not replace them or claim to invent name-based checkpointing.
+
 ## How the crash is simulated
 
 The interrupted run is configured for the **final** step count and then
